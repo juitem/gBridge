@@ -561,6 +561,14 @@
     .bubble.gemini h3 { font-size: 0.95em; }
     .bubble.gemini ul,.bubble.gemini ol { padding-left: 20px; margin-bottom: 6px; }
     .bubble.gemini li { margin-bottom: 3px; }
+    .copy-btn {
+      display: inline-flex; align-items: center; gap: 5px;
+      margin-top: 10px; padding: 4px 10px;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 6px; color: var(--text-dim); font-size: 12px;
+      cursor: pointer; transition: background 0.15s, color 0.15s;
+    }
+    .copy-btn:hover { background: var(--border); color: var(--text); }
     .bubble.gemini code {
       background: #0d0f1a;
       padding: 1px 5px;
@@ -1374,8 +1382,29 @@ function appendErrorBubble(msg) {
 
 function renderGeminiBubble(bubble, text) {
   const html = marked.parse(text || '');
-  bubble.innerHTML = html || '<span style="color:var(--text-muted);font-style:italic">응답 없음</span>';
+  bubble.innerHTML = (html || '<span style="color:var(--text-muted);font-style:italic">응답 없음</span>')
+    + `<button class="copy-btn" title="복사" onclick="copyBubble(this, ${JSON.stringify(text)})">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+        </svg>
+        복사
+      </button>`;
   scrollBottom();
+}
+
+function copyBubble(btn, text) {
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = '✓ 복사됨';
+    setTimeout(() => {
+      btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+        </svg> 복사`;
+    }, 2000);
+  });
 }
 
 // ── WebSocket ──────────────────────────────────────────────────
