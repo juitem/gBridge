@@ -27,12 +27,9 @@ ANSI_RE = re.compile(
     r'|[@-Z\\-_]'                       # Fe single-char sequences
     r')'
 )
-# After ANSI strip, catch leftover fragments like "[38;2;25" or "0;◇ Ready"
-LEFTOVER_RE = re.compile(r'(?:\d+;)+[^\s\w가-힣]*|^\s*\d+;')
-
-# Positive filter: a line is meaningful if it contains 3+ consecutive
+# Positive filter: a line is meaningful if it contains 2+ consecutive
 # letters/digits (ASCII or Korean) — i.e. actual words/content
-MEANINGFUL_RE = re.compile(r'[a-zA-Z가-힣\d]{3,}')
+MEANINGFUL_RE = re.compile(r'[a-zA-Z가-힣\d]{2,}')
 # Also keep markdown structure lines
 MARKDOWN_RE = re.compile(r'^[\s]*(?:#{1,6}\s|[-*+]\s|>\s|`{3}|\d+\.\s|---+|===+)')
 # Gemini CLI status bar / TUI chrome lines to always exclude
@@ -50,7 +47,24 @@ GEMINI_UI_RE = re.compile(
     r'|Gemini CLI v'
     r'|Installed with npm'
     r'|update available'
+    r'|Waiting for auth'            # startup spinner
+    r'|cancel\)'                    # "(Press Esc or Ctrl+C to cancel)"
+    r"|We.re making changes"        # policy notice
+    r"|What.s Changing"
+    r'|policy.violating'
+    r'|prioritize traffic'
+    r'|capacity.related'
+    r'|Read more:'
+    r'|geminicli-updates'
+    r'|affects you'
+    r'|high traffic'
+    r'|workflow\.'
     r')',
+    re.IGNORECASE
+)
+# Initialization / retry noise from headless mode stderr (merged into stdout via PTY)
+INIT_NOISE_RE = re.compile(
+    r'(?:Loaded cached credentials|Attempt \d+ failed|Retrying with backoff|GaxiosError)',
     re.IGNORECASE
 )
 
@@ -59,28 +73,31 @@ def clean_output(raw: bytes) -> str:
     text = raw.decode("utf-8", errors="replace")
     # 1. Strip ANSI escape sequences
     text = ANSI_RE.sub('', text)
+    # 1b. Strip incomplete CSI sequences cut off at chunk boundary (e.g. \x1b[38;2;25)
+    text = re.sub(r'\x1b\[[0-9;]*', '', text)
+    # 1c. Strip box-drawing chars Gemini CLI uses to frame responses
+    text = re.sub(r'[│┤╢╖╕╣║╗╝╜╛┐└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌╡]', '', text)
     # 2. Handle carriage returns: keep last segment per line
     lines_cr = []
     for line in text.split('\n'):
         parts = line.split('\r')
         lines_cr.append(parts[-1])
-    text = '\n'.join(lines_cr)
     # 3. Positive filter: keep only meaningful lines
     filtered = []
     for line in lines_cr:
         stripped = line.strip()
         if not stripped:
             filtered.append('')  # preserve blank lines for paragraph spacing
+        elif INIT_NOISE_RE.search(stripped):
+            pass  # discard init/retry messages
         elif (MEANINGFUL_RE.search(stripped) or MARKDOWN_RE.match(stripped)) \
-                and not GEMINI_UI_RE.match(stripped):
+                and not GEMINI_UI_RE.match(stripped) \
+                and 'no sandbox' not in stripped.lower():
             filtered.append(line)
         # else: discard TUI noise
     # 4. Collapse 3+ consecutive blank lines into 1
     result = re.sub(r'\n{3,}', '\n\n', '\n'.join(filtered))
     return result
-
-# ── Idle timeout: seconds of silence = Gemini done responding ────────────────
-IDLE_TIMEOUT = 0.8
 
 
 # ── Session ──────────────────────────────────────────────────────────────────
@@ -94,59 +111,41 @@ class Session:
         # {role:"user", content:"..."} or {role:"gemini", content:"..."}
         self.history: List[dict] = []
 
-        self.master_fd: Optional[int] = None
-        self.proc: Optional[subprocess.Popen] = None
+        self.state: str = "idle"
         self.input_queue: asyncio.Queue = asyncio.Queue()
-        self.state: str = "starting"   # starting | idle | processing
-        self.reader_task: Optional[asyncio.Task] = None
         self.worker_task: Optional[asyncio.Task] = None
+        self._has_session: bool = False      # True after first message succeeds
+        self._current_proc: Optional[subprocess.Popen] = None
+        self._current_master_fd: Optional[int] = None
 
     def to_dict(self):
-        alive = self.proc is not None and self.proc.poll() is None
         return {
             "id": self.id,
             "workdir": self.workdir,
             "created_at": self.created_at,
             "message_count": sum(1 for m in self.history if m["role"] == "user"),
             "state": self.state,
-            "alive": alive,
+            "alive": True,
         }
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
     async def start(self):
-        master_fd, slave_fd = pty.openpty()
-        self.master_fd = master_fd
-
-        gemini_path = shutil.which("gemini") or "gemini"
-        self.proc = subprocess.Popen(
-            [gemini_path],
-            stdin=slave_fd, stdout=slave_fd, stderr=slave_fd,
-            cwd=self.workdir, close_fds=True,
-        )
-        os.close(slave_fd)
-
         loop = asyncio.get_event_loop()
-        self.reader_task = loop.create_task(self._reader_loop())
         self.worker_task = loop.create_task(self._worker_loop())
 
     async def stop(self):
-        for t in (self.reader_task, self.worker_task):
-            if t:
-                t.cancel()
-                try:
-                    await t
-                except (asyncio.CancelledError, Exception):
-                    pass
-        if self.proc and self.proc.poll() is None:
-            self.proc.terminate()
+        if self.worker_task:
+            self.worker_task.cancel()
             try:
-                self.proc.wait(timeout=3)
-            except subprocess.TimeoutExpired:
-                self.proc.kill()
-        if self.master_fd is not None:
+                await self.worker_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        if self._current_proc and self._current_proc.poll() is None:
+            self._current_proc.terminate()
+        if self._current_master_fd is not None:
             try:
-                os.close(self.master_fd)
+                os.close(self._current_master_fd)
             except OSError:
                 pass
 
@@ -178,95 +177,105 @@ class Session:
             else:
                 await ws.send_text(json.dumps(item, ensure_ascii=False))
 
-    # ── PTY reader ────────────────────────────────────────────────────────────
+    # ── Per-message Gemini runner ─────────────────────────────────────────────
 
-    async def _reader_loop(self):
+    async def _run_gemini(self, prompt: str) -> str:
+        """Run `gemini -p <prompt> [--resume latest]`, stream output to clients,
+        return the complete response text."""
+        gemini_path = shutil.which("gemini") or "gemini"
+        cmd = [gemini_path, "-p", prompt]
+        if self._has_session:
+            cmd += ["--resume", "latest"]
+
+        master_fd, slave_fd = pty.openpty()
+        self._current_master_fd = master_fd
+
         loop = asyncio.get_event_loop()
-        in_response = False
+
+        proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=slave_fd,
+            stderr=subprocess.DEVNULL,  # discard init/retry noise
+            cwd=self.workdir,
+            close_fds=True,
+        )
+        self._current_proc = proc
+        os.close(slave_fd)
+
         response_buf = ""
-        last_output = None
 
         def _read():
             """Blocking read with 100ms select timeout."""
             try:
-                r, _, _ = select.select([self.master_fd], [], [], 0.1)
+                r, _, _ = select.select([master_fd], [], [], 0.1)
                 if r:
-                    return os.read(self.master_fd, 4096)
+                    return os.read(master_fd, 4096)
                 return b""
             except OSError:
                 return None  # fd closed / process dead
 
         while True:
-            try:
-                raw = await loop.run_in_executor(None, _read)
-                if raw is None:
-                    break  # process died
-
-                now = loop.time()
-
-                if raw:
-                    text = clean_output(raw)
+            raw = await loop.run_in_executor(None, _read)
+            if raw is None:
+                break  # PTY closed
+            if raw:
+                text = clean_output(raw)
+                if text.strip():
+                    await self.broadcast({"role": "gemini_chunk", "content": text})
+                    response_buf += text
+            elif proc.poll() is not None:
+                # No data and process has exited — drain once more then stop
+                raw2 = await loop.run_in_executor(None, _read)
+                if raw2:
+                    text = clean_output(raw2)
                     if text.strip():
-                        if not in_response:
-                            in_response = True
-                            self.state = "processing"
-                            await self.broadcast({"role": "gemini_start"})
                         await self.broadcast({"role": "gemini_chunk", "content": text})
                         response_buf += text
-                        last_output = now
-                else:
-                    # No data this tick — check idle timeout
-                    if in_response and last_output and (now - last_output) >= IDLE_TIMEOUT:
-                        in_response = False
-                        self.state = "idle"
-                        # Save complete response to history
-                        self.history.append({"role": "gemini", "content": response_buf})
-                        response_buf = ""
-                        last_output = None
-                        await self.broadcast({"role": "gemini_done"})
-
-            except asyncio.CancelledError:
-                break
-            except Exception:
                 break
 
-        # Process exited
-        self.state = "idle"
-        await self.broadcast({"role": "error", "content": "Gemini 프로세스가 종료되었습니다."})
+        try:
+            os.close(master_fd)
+        except OSError:
+            pass
+        self._current_master_fd = None
+        self._current_proc = None
+        try:
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
+        return response_buf
 
     # ── Input worker ──────────────────────────────────────────────────────────
 
     async def _worker_loop(self):
-        # Wait for Gemini startup output to settle
-        await asyncio.sleep(2)
-        self.state = "idle"
-
         while True:
             try:
                 prompt = await self.input_queue.get()
-
-                # Wait until previous response is done
-                for _ in range(100):
-                    if self.state != "processing":
-                        break
-                    await asyncio.sleep(0.1)
 
                 # Record user message and broadcast
                 msg = {"role": "user", "content": prompt}
                 self.history.append(msg)
                 await self.broadcast(msg)
 
-                # Send to PTY
-                try:
-                    os.write(self.master_fd, (prompt + "\n").encode())
-                except OSError:
-                    pass
+                self.state = "processing"
+                await self.broadcast({"role": "gemini_start"})
+
+                response = await self._run_gemini(prompt)
+
+                self._has_session = True
+                self.history.append({"role": "gemini", "content": response})
+                self.state = "idle"
+                await self.broadcast({"role": "gemini_done"})
 
                 self.input_queue.task_done()
 
             except asyncio.CancelledError:
                 break
             except Exception:
+                self.state = "idle"
+                await self.broadcast({"role": "error", "content": "Gemini 처리 중 오류가 발생했습니다."})
                 try:
                     self.input_queue.task_done()
                 except Exception:
