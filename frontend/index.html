@@ -9,19 +9,23 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --bg: #0f1117;
-      --surface: #1a1d27;
-      --surface2: #22263a;
-      --border: #2e3347;
-      --accent: #5b8ef0;
-      --accent-dim: #3a5fc4;
-      --text: #e2e4ef;
-      --text-dim: #7c85a6;
-      --user-bubble: #2a3560;
-      --gemini-bubble: #1e2235;
-      --radius: 12px;
-      --header-h: 52px;
-      --toolbar-h: 54px;
+      --bg:            #0f1117;
+      --surface:       #1a1d27;
+      --surface2:      #22263a;
+      --border:        #2e3347;
+      --accent:        #5b8ef0;
+      --accent-dim:    #3a5fc4;
+      --accent-soft:   rgba(91,142,240,0.12);
+      --danger:        #e05252;
+      --danger-dim:    #b83e3e;
+      --success:       #3ecf6e;
+      --text:          #e2e4ef;
+      --text-dim:      #7c85a6;
+      --text-muted:    #4e566e;
+      --user-bubble:   #1e3060;
+      --gemini-bubble: #1a1d27;
+      --radius:        12px;
+      --header-h:      54px;
     }
 
     html, body {
@@ -32,18 +36,23 @@
       font-size: 15px;
       line-height: 1.55;
       overscroll-behavior: none;
+      -webkit-font-smoothing: antialiased;
     }
 
-    /* ─── Layout shell ─── */
-    #app {
-      display: flex;
+    /* ═══════════════════════════════════════════════════════════════
+       SCREENS
+    ═══════════════════════════════════════════════════════════════ */
+    .screen {
+      display: none;
       flex-direction: column;
       height: 100dvh;
-      height: calc(100vh - env(safe-area-inset-bottom));
     }
+    .screen.active { display: flex; }
 
-    /* ─── Header ─── */
-    header {
+    /* ═══════════════════════════════════════════════════════════════
+       SHARED HEADER
+    ═══════════════════════════════════════════════════════════════ */
+    .app-header {
       flex-shrink: 0;
       height: var(--header-h);
       display: flex;
@@ -52,71 +61,434 @@
       background: var(--surface);
       border-bottom: 1px solid var(--border);
       gap: 10px;
+      position: relative;
     }
-    header .logo {
+    .logo {
       font-size: 18px;
       font-weight: 700;
-      letter-spacing: -0.3px;
+      letter-spacing: -0.5px;
       color: var(--accent);
     }
-    header .logo span { color: var(--text-dim); font-weight: 400; }
+    .logo span { color: var(--text-dim); font-weight: 400; }
 
-    /* ─── Toolbar (workdir + session) ─── */
-    #toolbar {
+    /* icon button */
+    .icon-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      border: none;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--text);
+      cursor: pointer;
+      transition: background 0.15s;
       flex-shrink: 0;
-      background: var(--surface);
-      border-bottom: 1px solid var(--border);
-      padding: 8px 14px;
+    }
+    .icon-btn:hover { background: var(--surface2); }
+    .icon-btn svg { pointer-events: none; }
+
+    .danger-btn {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px 12px;
+      border: 1px solid rgba(224,82,82,0.35);
+      border-radius: 8px;
+      background: transparent;
+      color: var(--danger);
+      font-size: 13px;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+      white-space: nowrap;
+    }
+    .danger-btn:hover {
+      background: rgba(224,82,82,0.1);
+      border-color: var(--danger);
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       SCREEN 1 — SESSION LIST
+    ═══════════════════════════════════════════════════════════════ */
+    #screen-list .list-section-header {
+      display: flex;
+      align-items: center;
+      padding: 18px 16px 10px;
+      gap: 8px;
+    }
+    #screen-list .list-section-header h2 {
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-dim);
+      flex: 1;
+    }
+
+    #session-list-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 0 12px 100px;
+    }
+    #session-list-container::-webkit-scrollbar { width: 4px; }
+    #session-list-container::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    /* session card */
+    .session-card {
       display: flex;
       flex-direction: column;
-      gap: 7px;
+      gap: 6px;
+      padding: 14px 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin-bottom: 10px;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+      user-select: none;
     }
-    .workdir-row {
+    .session-card:hover {
+      border-color: var(--accent);
+      background: var(--surface2);
+    }
+    .session-card:active { transform: scale(0.99); }
+    .session-card-title {
       display: flex;
       align-items: center;
       gap: 8px;
+      font-size: 14px;
+      font-weight: 600;
     }
-    .workdir-icon { font-size: 14px; }
-    #workdir-label {
-      flex: 1;
+    .session-card-title .session-icon { font-size: 16px; }
+    .session-card-title .session-id {
+      font-family: "SF Mono", "Fira Code", monospace;
       font-size: 13px;
+      color: var(--accent);
+    }
+    .session-card-workdir {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
       color: var(--text-dim);
       font-family: "SF Mono", "Fira Code", monospace;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .btn-sm {
-      padding: 3px 10px;
+    .session-card-meta {
       font-size: 12px;
-      background: var(--surface2);
-      color: var(--text);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      cursor: pointer;
-      white-space: nowrap;
-      transition: background 0.15s;
+      color: var(--text-muted);
     }
-    .btn-sm:hover { background: var(--border); }
 
-    .session-row {
+    /* empty state */
+    .empty-state {
       display: flex;
+      flex-direction: column;
       align-items: center;
-      gap: 16px;
-    }
-    .radio-label {
-      display: flex;
-      align-items: center;
-      gap: 5px;
-      font-size: 13px;
+      justify-content: center;
+      gap: 10px;
+      padding: 60px 24px;
       color: var(--text-dim);
+      text-align: center;
+    }
+    .empty-state .empty-icon { font-size: 48px; margin-bottom: 4px; }
+    .empty-state .empty-title { font-size: 15px; font-weight: 600; color: var(--text); }
+    .empty-state .empty-sub   { font-size: 13px; color: var(--text-dim); }
+
+    /* FAB */
+    #fab {
+      position: fixed;
+      bottom: calc(24px + env(safe-area-inset-bottom));
+      right: 20px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 22px 0 16px;
+      height: 52px;
+      background: var(--accent);
+      border: none;
+      border-radius: 26px;
+      color: #fff;
+      font-size: 15px;
+      font-weight: 600;
       cursor: pointer;
+      box-shadow: 0 4px 20px rgba(91,142,240,0.4);
+      transition: background 0.15s, transform 0.12s, box-shadow 0.15s;
+      z-index: 50;
+    }
+    #fab:hover  { background: var(--accent-dim); box-shadow: 0 6px 24px rgba(91,142,240,0.5); }
+    #fab:active { transform: scale(0.96); }
+
+    /* ═══════════════════════════════════════════════════════════════
+       NEW SESSION MODAL  (bottom sheet)
+    ═══════════════════════════════════════════════════════════════ */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.7);
+      z-index: 200;
+      align-items: flex-end;
+      justify-content: center;
+    }
+    .modal-overlay.open { display: flex; }
+
+    .bottom-sheet {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px 20px 0 0;
+      width: 100%;
+      max-width: 600px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      animation: slideUp 0.22s cubic-bezier(.22,.61,.36,1);
+      max-height: 85dvh;
+    }
+    @media (min-width: 640px) {
+      .modal-overlay { align-items: center; }
+      .bottom-sheet  { border-radius: 16px; max-height: 70dvh; }
+    }
+    @keyframes slideUp {
+      from { transform: translateY(30px); opacity: 0; }
+      to   { transform: translateY(0);    opacity: 1; }
+    }
+
+    .sheet-header {
+      display: flex;
+      align-items: center;
+      padding: 16px 16px 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .sheet-header h3 { font-size: 16px; font-weight: 700; flex: 1; }
+    .sheet-close {
+      width: 30px; height: 30px;
+      border: none; border-radius: 50%;
+      background: var(--surface2);
+      color: var(--text-dim);
+      font-size: 16px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .sheet-close:hover { background: var(--border); }
+
+    /* dir picker inside sheet */
+    .dir-picker {
+      display: flex;
+      flex-direction: column;
+    }
+    .dir-picker-label {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-dim);
+      padding: 12px 16px 6px;
+    }
+    .dir-favorites {
+      display: flex;
+      flex-direction: column;
+      border-bottom: 1px solid var(--border);
+    }
+    .fav-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 16px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background 0.1s;
       user-select: none;
     }
-    .radio-label input[type=radio] { accent-color: var(--accent); cursor: pointer; }
-    .radio-label.active { color: var(--text); }
+    .fav-item:hover { background: var(--surface2); }
+    .fav-item .fav-path {
+      font-size: 11px;
+      color: var(--text-muted);
+      font-family: "SF Mono","Fira Code",monospace;
+      margin-top: 1px;
+    }
+    .fav-item .fav-info { display: flex; flex-direction: column; gap: 1px; }
 
-    /* ─── Messages ─── */
+    .dir-browse-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .dir-browse-row .browse-path {
+      flex: 1;
+      font-family: "SF Mono","Fira Code",monospace;
+      font-size: 12px;
+      color: var(--text-dim);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .btn-outline {
+      padding: 5px 12px;
+      font-size: 12px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.1s;
+    }
+    .btn-outline:hover { background: var(--border); }
+
+    /* radio group */
+    .radio-group {
+      display: flex;
+      gap: 0;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .radio-pill {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 8px 0;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text-dim);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.12s, color 0.12s, border-color 0.12s;
+      user-select: none;
+    }
+    .radio-pill:first-child { border-radius: 8px 0 0 8px; }
+    .radio-pill:last-child  { border-radius: 0 8px 8px 0; border-left: none; }
+    .radio-pill input { display: none; }
+    .radio-pill.selected {
+      background: var(--accent-soft);
+      border-color: var(--accent);
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    .sheet-footer {
+      display: flex;
+      gap: 10px;
+      padding: 14px 16px;
+      padding-bottom: calc(14px + env(safe-area-inset-bottom));
+    }
+    .btn-primary {
+      flex: 1;
+      padding: 12px 20px;
+      background: var(--accent);
+      border: none;
+      border-radius: 10px;
+      color: #fff;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+    }
+    .btn-primary:hover  { background: var(--accent-dim); }
+    .btn-primary:active { transform: scale(0.98); }
+    .btn-primary:disabled { background: var(--border); color: var(--text-dim); cursor: not-allowed; }
+    .btn-secondary {
+      padding: 12px 16px;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--text-dim);
+      font-size: 15px;
+      cursor: pointer;
+      transition: background 0.12s;
+    }
+    .btn-secondary:hover { background: var(--surface2); }
+
+    /* ═══════════════════════════════════════════════════════════════
+       DIR BROWSER MODAL  (inside new-session flow)
+    ═══════════════════════════════════════════════════════════════ */
+    #browse-modal {
+      z-index: 300;
+    }
+    .browse-sheet {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px 20px 0 0;
+      width: 100%;
+      max-width: 600px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      animation: slideUp 0.22s cubic-bezier(.22,.61,.36,1);
+      max-height: 80dvh;
+    }
+    @media (min-width: 640px) {
+      .browse-sheet { border-radius: 16px; max-height: 65dvh; }
+    }
+    .browse-path-bar {
+      display: flex;
+      align-items: center;
+      padding: 10px 16px;
+      gap: 10px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface2);
+    }
+    .browse-path-bar .cur-path {
+      flex: 1;
+      font-family: "SF Mono","Fira Code",monospace;
+      font-size: 12px;
+      color: var(--text-dim);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    #browse-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 6px 0;
+    }
+    #browse-list::-webkit-scrollbar { width: 4px; }
+    #browse-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+    .browse-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 11px 16px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background 0.1s;
+      user-select: none;
+    }
+    .browse-item:hover { background: var(--surface2); }
+    .browse-item.parent { color: var(--text-dim); }
+    .browse-item .bi-name { flex: 1; }
+    .browse-footer {
+      display: flex;
+      gap: 10px;
+      padding: 12px 16px;
+      padding-bottom: calc(12px + env(safe-area-inset-bottom));
+      border-top: 1px solid var(--border);
+    }
+
+    /* ═══════════════════════════════════════════════════════════════
+       SCREEN 2 — CHAT
+    ═══════════════════════════════════════════════════════════════ */
+    #chat-subheader {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      font-family: "SF Mono","Fira Code",monospace;
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+
     #messages {
       flex: 1;
       overflow-y: auto;
@@ -133,8 +505,10 @@
     .msg-row {
       display: flex;
       gap: 8px;
+      animation: fadeIn 0.15s ease;
     }
-    .msg-row.user { justify-content: flex-end; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; } }
+    .msg-row.user   { justify-content: flex-end; }
     .msg-row.gemini { justify-content: flex-start; }
 
     .avatar {
@@ -144,40 +518,49 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 13px;
+      font-size: 12px;
       flex-shrink: 0;
       margin-top: 2px;
     }
-    .avatar.gemini-av { background: linear-gradient(135deg, #5b8ef0, #a56bf5); }
+    .avatar.gemini-av { background: linear-gradient(135deg, #5b8ef0 0%, #a56bf5 100%); }
     .avatar.user-av   { background: var(--surface2); border: 1px solid var(--border); }
 
     .bubble {
-      max-width: min(78%, 560px);
+      max-width: min(80%, 560px);
       padding: 9px 13px;
       border-radius: var(--radius);
       font-size: 14px;
-      line-height: 1.6;
+      line-height: 1.65;
       word-break: break-word;
     }
     .bubble.user {
       background: var(--user-bubble);
-      border-bottom-right-radius: 3px;
+      border: 1px solid rgba(91,142,240,0.25);
+      border-bottom-right-radius: 4px;
       white-space: pre-wrap;
     }
     .bubble.gemini {
       background: var(--gemini-bubble);
       border: 1px solid var(--border);
-      border-bottom-left-radius: 3px;
+      border-bottom-left-radius: 4px;
+    }
+    .bubble.error-bubble {
+      background: rgba(224,82,82,0.1);
+      border-color: rgba(224,82,82,0.3);
+      color: var(--danger);
     }
 
     /* markdown inside gemini bubble */
-    .bubble.gemini p { margin-bottom: 6px; }
-    .bubble.gemini p:last-child { margin-bottom: 0; }
+    .bubble.gemini p             { margin-bottom: 6px; }
+    .bubble.gemini p:last-child  { margin-bottom: 0; }
     .bubble.gemini h1,.bubble.gemini h2,.bubble.gemini h3 {
-      margin: 8px 0 4px; font-size: 1em; font-weight: 700; color: var(--accent);
+      margin: 10px 0 5px; font-weight: 700; color: var(--accent);
     }
-    .bubble.gemini ul,.bubble.gemini ol { padding-left: 18px; margin-bottom: 6px; }
-    .bubble.gemini li { margin-bottom: 2px; }
+    .bubble.gemini h1 { font-size: 1.1em; }
+    .bubble.gemini h2 { font-size: 1.0em; }
+    .bubble.gemini h3 { font-size: 0.95em; }
+    .bubble.gemini ul,.bubble.gemini ol { padding-left: 20px; margin-bottom: 6px; }
+    .bubble.gemini li { margin-bottom: 3px; }
     .bubble.gemini code {
       background: #0d0f1a;
       padding: 1px 5px;
@@ -195,9 +578,7 @@
       margin: 6px 0;
     }
     .bubble.gemini pre code {
-      background: none;
-      padding: 0;
-      font-size: 12.5px;
+      background: none; padding: 0; font-size: 12.5px;
     }
     .bubble.gemini blockquote {
       border-left: 3px solid var(--accent);
@@ -205,36 +586,33 @@
       color: var(--text-dim);
       margin: 6px 0;
     }
-    .bubble.gemini table { border-collapse: collapse; font-size: 13px; margin: 6px 0; }
-    .bubble.gemini th,.bubble.gemini td {
-      border: 1px solid var(--border); padding: 4px 8px;
-    }
+    .bubble.gemini table { border-collapse: collapse; font-size: 13px; margin: 6px 0; width: 100%; }
+    .bubble.gemini th,.bubble.gemini td { border: 1px solid var(--border); padding: 5px 9px; }
     .bubble.gemini th { background: var(--surface2); }
-    .bubble.gemini a { color: var(--accent); }
+    .bubble.gemini a  { color: var(--accent); }
     .bubble.gemini hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
+    .bubble.gemini strong { color: #fff; }
 
     /* typing indicator */
     .typing-indicator {
-      display: flex;
-      align-items: center;
-      gap: 4px;
+      display: flex; align-items: center; gap: 4px;
       padding: 4px 0 2px;
     }
     .typing-indicator span {
       width: 7px; height: 7px;
-      background: var(--text-dim);
+      background: var(--text-muted);
       border-radius: 50%;
-      animation: bounce 1.2s infinite;
+      animation: bounce 1.3s infinite ease-in-out;
     }
-    .typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
-    .typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
+    .typing-indicator span:nth-child(2) { animation-delay: 0.18s; }
+    .typing-indicator span:nth-child(3) { animation-delay: 0.36s; }
     @keyframes bounce {
-      0%,80%,100% { transform: translateY(0); opacity: 0.5; }
-      40%          { transform: translateY(-5px); opacity: 1; }
+      0%,80%,100% { transform: translateY(0); opacity: 0.4; }
+      40%          { transform: translateY(-6px); opacity: 1; }
     }
 
-    /* empty state */
-    #empty-state {
+    /* chat empty state */
+    #chat-empty {
       flex: 1;
       display: flex;
       flex-direction: column;
@@ -242,11 +620,11 @@
       justify-content: center;
       gap: 8px;
       color: var(--text-dim);
-      pointer-events: none;
       user-select: none;
+      pointer-events: none;
     }
-    #empty-state .big { font-size: 38px; }
-    #empty-state p { font-size: 14px; }
+    #chat-empty .big  { font-size: 44px; }
+    #chat-empty p     { font-size: 14px; }
 
     /* ─── Input bar ─── */
     #input-bar {
@@ -276,7 +654,7 @@
       transition: border-color 0.15s;
     }
     #prompt:focus { border-color: var(--accent); }
-    #prompt::placeholder { color: var(--text-dim); }
+    #prompt::placeholder { color: var(--text-muted); }
 
     #send-btn {
       flex-shrink: 0;
@@ -290,236 +668,231 @@
       justify-content: center;
       transition: background 0.15s, transform 0.1s;
     }
-    #send-btn:hover  { background: var(--accent-dim); }
-    #send-btn:active { transform: scale(0.93); }
-    #send-btn svg { pointer-events: none; }
+    #send-btn:hover   { background: var(--accent-dim); }
+    #send-btn:active  { transform: scale(0.93); }
+    #send-btn svg     { pointer-events: none; }
     #send-btn:disabled { background: var(--border); cursor: not-allowed; }
 
-    /* ─── Modal overlay ─── */
-    #modal-overlay {
-      display: none;
-      position: fixed;
-      inset: 0;
-      background: rgba(0,0,0,0.65);
-      z-index: 100;
-      align-items: flex-end;
-      justify-content: center;
-    }
-    #modal-overlay.open { display: flex; }
-
-    #dir-modal {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 16px 16px 0 0;
-      width: 100%;
-      max-width: 600px;
-      max-height: 70dvh;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-      animation: slideUp 0.22s ease;
-    }
-    @media (min-width: 600px) {
-      #modal-overlay { align-items: center; }
-      #dir-modal {
-        border-radius: 16px;
-        max-height: 60dvh;
-      }
-    }
-    @keyframes slideUp {
-      from { transform: translateY(40px); opacity: 0; }
-      to   { transform: translateY(0);    opacity: 1; }
-    }
-
-    .modal-header {
-      display: flex;
-      align-items: center;
-      padding: 14px 16px 10px;
-      gap: 10px;
-      border-bottom: 1px solid var(--border);
-    }
-    .modal-header h3 { font-size: 15px; font-weight: 600; }
-    #dir-favorites { border-bottom: 1px solid var(--border); padding: 6px 0; }
-    .fav-label { font-size: 11px; color: var(--text-dim); padding: 2px 16px 4px; text-transform: uppercase; letter-spacing: 0.05em; }
-    .fav-item { border-radius: 0; }
-    #modal-path {
-      flex: 1;
-      font-size: 12px;
-      font-family: "SF Mono","Fira Code",monospace;
-      color: var(--text-dim);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    #dir-list {
-      flex: 1;
-      overflow-y: auto;
-      padding: 6px 0;
-    }
-    #dir-list::-webkit-scrollbar { width: 4px; }
-    #dir-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
-
-    .dir-item {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 10px 16px;
-      cursor: pointer;
-      font-size: 14px;
-      transition: background 0.1s;
-      user-select: none;
-    }
-    .dir-item:hover { background: var(--surface2); }
-    .dir-item .di-icon { font-size: 16px; }
-    .dir-item .di-name { flex: 1; }
-    .dir-item.parent { color: var(--text-dim); font-style: italic; }
-
-    .modal-footer {
-      display: flex;
-      gap: 8px;
-      padding: 10px 16px;
-      padding-bottom: calc(10px + env(safe-area-inset-bottom));
-      border-top: 1px solid var(--border);
-      justify-content: flex-end;
-    }
-    .btn-cancel {
-      padding: 7px 18px;
-      background: transparent;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      color: var(--text-dim);
-      font-size: 14px;
-      cursor: pointer;
-    }
-    .btn-cancel:hover { background: var(--surface2); }
-    .btn-confirm {
-      padding: 7px 18px;
-      background: var(--accent);
-      border: none;
-      border-radius: 8px;
-      color: #fff;
-      font-size: 14px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.15s;
-    }
-    .btn-confirm:hover { background: var(--accent-dim); }
-
-    /* ─── Error toast ─── */
-    #toast {
-      position: fixed;
-      bottom: 80px;
-      left: 50%;
-      transform: translateX(-50%) translateY(20px);
-      background: #c0392b;
-      color: #fff;
-      padding: 8px 16px;
-      border-radius: 8px;
-      font-size: 13px;
-      opacity: 0;
-      transition: opacity 0.2s, transform 0.2s;
-      pointer-events: none;
-      z-index: 200;
-      white-space: nowrap;
-    }
-    #toast.show {
-      opacity: 1;
-      transform: translateX(-50%) translateY(0);
-    }
-
-    /* ─── Status badge ─── */
+    /* status dot */
     #status-dot {
       width: 8px; height: 8px;
       border-radius: 50%;
-      background: var(--text-dim);
+      background: var(--border);
       flex-shrink: 0;
       transition: background 0.3s;
     }
-    #status-dot.connected    { background: #3ecf6e; }
-    #status-dot.streaming    { background: var(--accent); animation: pulse 1s infinite; }
-    #status-dot.error        { background: #e05252; }
+    #status-dot.connected  { background: var(--success); }
+    #status-dot.streaming  { background: var(--accent); animation: pulse 1s infinite; }
+    #status-dot.error      { background: var(--danger); }
     @keyframes pulse {
-      0%,100% { opacity: 1; } 50% { opacity: 0.4; }
+      0%,100% { opacity: 1; } 50% { opacity: 0.35; }
+    }
+
+    /* ─── Toast ─── */
+    #toast {
+      position: fixed;
+      bottom: 90px;
+      left: 50%;
+      transform: translateX(-50%) translateY(16px);
+      background: #2b2f3e;
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 9px 18px;
+      border-radius: 10px;
+      font-size: 13px;
+      opacity: 0;
+      pointer-events: none;
+      z-index: 9999;
+      white-space: nowrap;
+      transition: opacity 0.22s, transform 0.22s;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+    }
+    #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+    #toast.error-toast { background: var(--danger); border-color: var(--danger-dim); }
+
+    /* spinner */
+    .spinner {
+      width: 18px; height: 18px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ─── Responsive tweaks ─── */
+    @media (min-width: 640px) {
+      #screen-list { max-width: 620px; margin: 0 auto; }
     }
   </style>
 </head>
 <body>
 
-<div id="app">
-
-  <!-- Header -->
-  <header>
+<!-- ═══════════════════════════════════════════════════════════════
+     SCREEN 1: SESSION LIST
+═══════════════════════════════════════════════════════════════ -->
+<div id="screen-list" class="screen active">
+  <header class="app-header">
     <div class="logo">gbridge<span>.ai</span></div>
     <div style="flex:1"></div>
-    <div id="status-dot" title="연결 상태"></div>
+    <button class="icon-btn" id="refresh-btn" title="새로고침">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="23 4 23 10 17 10"></polyline>
+        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+      </svg>
+    </button>
   </header>
 
-  <!-- Toolbar -->
-  <div id="toolbar">
-    <div class="workdir-row">
-      <span class="workdir-icon">📁</span>
-      <span id="workdir-label">/</span>
-      <button class="btn-sm" id="change-dir-btn">변경</button>
-    </div>
-    <div class="session-row">
-      <label class="radio-label active" id="lbl-new">
-        <input type="radio" name="session" value="new" checked /> 새 세션
-      </label>
-      <label class="radio-label" id="lbl-cont">
-        <input type="radio" name="session" value="continue" /> Continue
-      </label>
-    </div>
+  <div class="list-section-header">
+    <h2>활성 세션</h2>
   </div>
 
-  <!-- Messages -->
+  <div id="session-list-container">
+    <!-- cards injected here -->
+  </div>
+
+  <button id="fab" title="새 세션 시작">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+         stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="12" y1="5" x2="12" y2="19"></line>
+      <line x1="5" y1="12" x2="19" y2="12"></line>
+    </svg>
+    새 세션 시작
+  </button>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SCREEN 2: CHAT
+═══════════════════════════════════════════════════════════════ -->
+<div id="screen-chat" class="screen">
+  <header class="app-header">
+    <button class="icon-btn" id="back-btn" title="뒤로">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="15 18 9 12 15 6"></polyline>
+      </svg>
+    </button>
+    <div style="flex:1;overflow:hidden">
+      <div style="font-size:14px;font-weight:600;font-family:'SF Mono','Fira Code',monospace;
+                  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" id="chat-session-id">
+      </div>
+    </div>
+    <div id="status-dot" title="연결 상태"></div>
+    <button class="danger-btn" id="delete-btn">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="3 6 5 6 21 6"></polyline>
+        <path d="M19 6l-1 14H6L5 6"></path>
+        <path d="M10 11v6M14 11v6"></path>
+        <path d="M9 6V4h6v2"></path>
+      </svg>
+      삭제
+    </button>
+  </header>
+
+  <div id="chat-subheader">
+    <span>📁</span>
+    <span id="chat-workdir" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+  </div>
+
   <div id="messages">
-    <div id="empty-state">
-      <div class="big">🌉</div>
-      <p>Gemini CLI에 메시지를 보내세요</p>
+    <div id="chat-empty">
+      <div class="big">✦</div>
+      <p>Gemini가 기다리고 있습니다</p>
     </div>
   </div>
 
-  <!-- Input bar -->
   <div id="input-bar">
     <textarea
       id="prompt"
-      placeholder="메시지 입력... (Enter 전송, Shift+Enter 줄바꿈)"
+      placeholder="메시지 입력… (Enter 전송, Shift+Enter 줄바꿈)"
       rows="1"
       autocomplete="off"
       spellcheck="false"
     ></textarea>
     <button id="send-btn" title="전송">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff"
-           stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#fff"
+           stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
         <line x1="22" y1="2" x2="11" y2="13"></line>
         <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
       </svg>
     </button>
   </div>
-
 </div>
 
-<!-- Directory browser modal -->
-<div id="modal-overlay">
-  <div id="dir-modal">
-    <div class="modal-header">
+<!-- ═══════════════════════════════════════════════════════════════
+     NEW SESSION MODAL
+═══════════════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="new-session-modal">
+  <div class="bottom-sheet">
+    <div class="sheet-header">
+      <h3>새 세션 시작</h3>
+      <button class="sheet-close" id="new-session-close">✕</button>
+    </div>
+
+    <div style="overflow-y:auto;flex:1;">
+      <div class="dir-picker">
+        <div class="dir-picker-label">작업 디렉토리</div>
+        <div class="dir-favorites">
+          <div class="fav-item" data-path="/Users/juitem/Documents/ObsidianM4mini">
+            <span style="font-size:18px">📔</span>
+            <div class="fav-info">
+              <span style="font-size:14px;font-weight:500">ObsidianM4mini</span>
+              <span class="fav-path">/Users/juitem/Documents/ObsidianM4mini</span>
+            </div>
+          </div>
+          <div class="fav-item" data-path="/Users/juitem/M4mini">
+            <span style="font-size:18px">💻</span>
+            <div class="fav-info">
+              <span style="font-size:14px;font-weight:500">M4mini</span>
+              <span class="fav-path">/Users/juitem/M4mini</span>
+            </div>
+          </div>
+        </div>
+        <div class="dir-browse-row">
+          <span class="browse-path" id="new-session-path">/</span>
+          <button class="btn-outline" id="browse-btn">📂 탐색</button>
+        </div>
+      </div>
+
+      <div class="radio-group">
+        <label class="radio-pill selected" id="pill-new">
+          <input type="radio" name="session-mode" value="new" checked />
+          ✨ 새 세션
+        </label>
+        <label class="radio-pill" id="pill-cont">
+          <input type="radio" name="session-mode" value="continue" />
+          ↩ Continue
+        </label>
+      </div>
+    </div>
+
+    <div class="sheet-footer">
+      <button class="btn-secondary" id="new-session-cancel">취소</button>
+      <button class="btn-primary" id="new-session-start">
+        시작
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     DIRECTORY BROWSER MODAL
+═══════════════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="browse-modal">
+  <div class="browse-sheet">
+    <div class="sheet-header">
       <h3>디렉토리 선택</h3>
-      <span id="modal-path">/</span>
+      <button class="sheet-close" id="browse-close">✕</button>
     </div>
-    <div id="dir-favorites">
-      <div class="fav-label">즐겨찾기</div>
-      <div class="dir-item fav-item" data-path="/Users/juitem/Documents/ObsidianM4mini">
-        <span class="di-icon">📔</span><span class="di-name">ObsidianM4mini</span>
-      </div>
-      <div class="dir-item fav-item" data-path="/Users/juitem/M4mini">
-        <span class="di-icon">💻</span><span class="di-name">M4mini</span>
-      </div>
+    <div class="browse-path-bar">
+      <span class="cur-path" id="browse-cur-path">/</span>
     </div>
-    <div id="dir-list"></div>
-    <div class="modal-footer">
-      <button class="btn-cancel" id="modal-cancel">취소</button>
-      <button class="btn-confirm" id="modal-select">선택</button>
+    <div id="browse-list"></div>
+    <div class="browse-footer">
+      <button class="btn-secondary" id="browse-cancel">취소</button>
+      <button class="btn-primary" id="browse-select">이 폴더 선택</button>
     </div>
   </div>
 </div>
@@ -528,355 +901,597 @@
 <div id="toast"></div>
 
 <script>
-  // ── marked config ──────────────────────────────────────────────
-  marked.setOptions({
-    breaks: true,
-    gfm: true,
-  });
+'use strict';
 
-  // ── State ──────────────────────────────────────────────────────
-  let workdir = '/';
-  let browseDir = '/';
-  let ws = null;
-  let streaming = false;
-  let currentGeminiBubble = null;
-  let currentGeminiText = '';
+// ══════════════════════════════════════════════════════════════════
+// marked config
+// ══════════════════════════════════════════════════════════════════
+marked.setOptions({ breaks: true, gfm: true });
 
-  // ── DOM refs ───────────────────────────────────────────────────
-  const messages       = document.getElementById('messages');
-  const emptyState     = document.getElementById('empty-state');
-  const prompt         = document.getElementById('prompt');
-  const sendBtn        = document.getElementById('send-btn');
-  const workdirLabel   = document.getElementById('workdir-label');
-  const statusDot      = document.getElementById('status-dot');
-  const modalOverlay   = document.getElementById('modal-overlay');
-  const modalPath      = document.getElementById('modal-path');
-  const dirList        = document.getElementById('dir-list');
-  const changeDirBtn   = document.getElementById('change-dir-btn');
-  const modalCancel    = document.getElementById('modal-cancel');
-  const modalSelect    = document.getElementById('modal-select');
-  const toast          = document.getElementById('toast');
-  const radios         = document.querySelectorAll('input[name="session"]');
-  const lblNew         = document.getElementById('lbl-new');
-  const lblCont        = document.getElementById('lbl-cont');
+// ══════════════════════════════════════════════════════════════════
+// State
+// ══════════════════════════════════════════════════════════════════
+const state = {
+  // session list
+  sessions: [],
 
-  // ── Helpers ────────────────────────────────────────────────────
-  function stripAnsi(str) {
-    // ESC [ ... m  and related control sequences
-    return str
-      .replace(/\x1B\[[0-9;]*[mGKHFJABCDEF]/g, '')
-      .replace(/\x1B\][^\x07]*\x07/g, '')    // OSC sequences
-      .replace(/\x1B[()][AB012]/g, '')         // character set
-      .replace(/\x1B[=>]/g, '')
-      .replace(/\r/g, '');
+  // new session form
+  newSessionPath: '/',
+  newSessionMode: 'new',   // 'new' | 'continue'
+
+  // browse modal
+  browsePath: '/',
+
+  // chat
+  activeSessionId: null,
+  activeWorkdir:   null,
+  ws:              null,
+  streaming:       false,
+  currentGeminiBubble: null,
+  currentGeminiText:   '',
+};
+
+// ══════════════════════════════════════════════════════════════════
+// DOM refs
+// ══════════════════════════════════════════════════════════════════
+const screenList        = document.getElementById('screen-list');
+const screenChat        = document.getElementById('screen-chat');
+
+// list screen
+const sessionContainer  = document.getElementById('session-list-container');
+const refreshBtn        = document.getElementById('refresh-btn');
+const fab               = document.getElementById('fab');
+
+// new session modal
+const newSessionModal   = document.getElementById('new-session-modal');
+const newSessionClose   = document.getElementById('new-session-close');
+const newSessionCancel  = document.getElementById('new-session-cancel');
+const newSessionStart   = document.getElementById('new-session-start');
+const newSessionPathEl  = document.getElementById('new-session-path');
+const browseBtn         = document.getElementById('browse-btn');
+const pillNew           = document.getElementById('pill-new');
+const pillCont          = document.getElementById('pill-cont');
+
+// browse modal
+const browseModal       = document.getElementById('browse-modal');
+const browseClose       = document.getElementById('browse-close');
+const browseCancel      = document.getElementById('browse-cancel');
+const browseSelect      = document.getElementById('browse-select');
+const browseCurPath     = document.getElementById('browse-cur-path');
+const browseList        = document.getElementById('browse-list');
+
+// chat screen
+const backBtn           = document.getElementById('back-btn');
+const deleteBtn         = document.getElementById('delete-btn');
+const chatSessionId     = document.getElementById('chat-session-id');
+const chatWorkdir       = document.getElementById('chat-workdir');
+const chatSubheader     = document.getElementById('chat-subheader');
+const messagesEl        = document.getElementById('messages');
+const chatEmpty         = document.getElementById('chat-empty');
+const promptEl          = document.getElementById('prompt');
+const sendBtn           = document.getElementById('send-btn');
+const statusDot         = document.getElementById('status-dot');
+const toast             = document.getElementById('toast');
+
+// ══════════════════════════════════════════════════════════════════
+// Helpers
+// ══════════════════════════════════════════════════════════════════
+function stripAnsi(str) {
+  return str
+    .replace(/\x1B\[[0-9;]*[mGKHFJABCDEF]/g, '')
+    .replace(/\x1B\][^\x07]*\x07/g, '')
+    .replace(/\x1B[()][AB012]/g, '')
+    .replace(/\x1B[=>]/g, '')
+    .replace(/\r/g, '');
+}
+
+function escapeHtml(t) {
+  return t
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+let toastTimer = null;
+function showToast(msg, isError = false, dur = 3500) {
+  clearTimeout(toastTimer);
+  toast.textContent = msg;
+  toast.className = isError ? 'show error-toast' : 'show';
+  toastTimer = setTimeout(() => toast.className = '', dur);
+}
+
+function setStatus(s) {
+  statusDot.className = s || '';
+}
+
+function scrollBottom(force = false) {
+  const nearBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 140;
+  if (nearBottom || force) messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+function relativeTime(isoStr) {
+  const diff = Math.floor((Date.now() - new Date(isoStr)) / 1000);
+  if (diff < 60)        return `${diff}초 전`;
+  if (diff < 3600)      return `${Math.floor(diff / 60)}분 전`;
+  if (diff < 86400)     return `${Math.floor(diff / 3600)}시간 전`;
+  return `${Math.floor(diff / 86400)}일 전`;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// Screen navigation
+// ══════════════════════════════════════════════════════════════════
+function showScreen(name) {
+  screenList.classList.toggle('active', name === 'list');
+  screenChat.classList.toggle('active', name === 'chat');
+}
+
+// ══════════════════════════════════════════════════════════════════
+// SCREEN 1 — Session list
+// ══════════════════════════════════════════════════════════════════
+async function loadSessions() {
+  // animate refresh icon
+  refreshBtn.querySelector('svg').style.animation = 'spin 0.7s linear infinite';
+  try {
+    const res = await fetch('/api/sessions');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    state.sessions = await res.json();
+    renderSessionList();
+  } catch (e) {
+    showToast('세션 목록을 불러올 수 없습니다: ' + e.message, true);
+  } finally {
+    refreshBtn.querySelector('svg').style.animation = '';
   }
+}
 
-  function showToast(msg, dur = 3500) {
-    toast.textContent = msg;
-    toast.classList.add('show');
-    setTimeout(() => toast.classList.remove('show'), dur);
-  }
+function renderSessionList() {
+  sessionContainer.innerHTML = '';
 
-  function setStatus(state) {
-    statusDot.className = state ? `connected ${state}` : '';
-    if (state === 'streaming') statusDot.classList.add('streaming');
-    if (state === 'error')     statusDot.classList.add('error');
-    if (state === 'connected') statusDot.classList.add('connected');
-    // reset and apply
-    statusDot.className = '';
-    if (state) statusDot.classList.add(state);
-  }
-
-  function scrollBottom(force = false) {
-    const el = messages;
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
-    if (nearBottom || force) el.scrollTop = el.scrollHeight;
-  }
-
-  // ── Textarea auto-grow ─────────────────────────────────────────
-  prompt.addEventListener('input', () => {
-    prompt.style.height = 'auto';
-    const lineH = parseFloat(getComputedStyle(prompt).lineHeight);
-    const maxH  = lineH * 6 + 18;
-    prompt.style.height = Math.min(prompt.scrollHeight, maxH) + 'px';
-  });
-
-  // ── Session radio ──────────────────────────────────────────────
-  radios.forEach(r => {
-    r.addEventListener('change', () => {
-      lblNew.classList.toggle('active', r.value === 'new' ? r.checked : !r.checked);
-      lblCont.classList.toggle('active', r.value === 'continue' ? r.checked : !r.checked);
-    });
-  });
-  // fix on load
-  document.querySelectorAll('input[name="session"]').forEach(r => {
-    r.addEventListener('change', syncRadioLabels);
-  });
-  function syncRadioLabels() {
-    const val = [...radios].find(r => r.checked)?.value;
-    lblNew.classList.toggle('active', val === 'new');
-    lblCont.classList.toggle('active', val === 'continue');
-  }
-
-  // ── Message rendering ──────────────────────────────────────────
-  function hideEmptyState() {
-    if (emptyState && emptyState.parentNode === messages) {
-      emptyState.style.display = 'none';
-    }
-  }
-
-  function appendUserMessage(text) {
-    hideEmptyState();
-    const row = document.createElement('div');
-    row.className = 'msg-row user';
-    row.innerHTML = `
-      <div class="bubble user">${escapeHtml(text)}</div>
-      <div class="avatar user-av">👤</div>
-    `;
-    messages.appendChild(row);
-    scrollBottom(true);
-    return row;
-  }
-
-  function appendGeminiMessage() {
-    hideEmptyState();
-    const row = document.createElement('div');
-    row.className = 'msg-row gemini';
-    row.innerHTML = `
-      <div class="avatar gemini-av">✦</div>
-      <div class="bubble gemini">
-        <div class="typing-indicator">
-          <span></span><span></span><span></span>
-        </div>
+  if (!state.sessions || state.sessions.length === 0) {
+    sessionContainer.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">🌉</div>
+        <div class="empty-title">활성 세션 없음</div>
+        <div class="empty-sub">아래 버튼을 눌러 새 세션을 시작하세요</div>
       </div>
     `;
-    messages.appendChild(row);
-    scrollBottom(true);
-    const bubble = row.querySelector('.bubble.gemini');
-    return bubble;
+    return;
   }
 
-  function updateGeminiBubble(bubble, text) {
-    const html = marked.parse(text || '');
-    bubble.innerHTML = html || '<span style="color:var(--text-dim);font-style:italic">응답 없음</span>';
-    scrollBottom();
-  }
+  state.sessions.forEach(s => {
+    const card = document.createElement('div');
+    card.className = 'session-card';
+    const shortId = s.id ? s.id.substring(0, 8) : '?';
+    const timeAgo = s.created_at ? relativeTime(s.created_at) : '';
+    const msgCount = s.message_count != null ? `메시지 ${s.message_count}개` : '';
+    const meta = [msgCount, timeAgo].filter(Boolean).join(' · ');
 
-  function escapeHtml(t) {
-    return t
-      .replace(/&/g,'&amp;')
-      .replace(/</g,'&lt;')
-      .replace(/>/g,'&gt;')
-      .replace(/"/g,'&quot;');
-  }
+    card.innerHTML = `
+      <div class="session-card-title">
+        <span class="session-icon">💬</span>
+        <span class="session-id">세션 ${shortId}</span>
+      </div>
+      <div class="session-card-workdir">
+        <span>📁</span>
+        <span>${escapeHtml(s.workdir || '/')}</span>
+      </div>
+      ${meta ? `<div class="session-card-meta">${escapeHtml(meta)}</div>` : ''}
+    `;
+    card.addEventListener('click', () => enterChat(s.id, s.workdir));
+    sessionContainer.appendChild(card);
+  });
+}
 
-  // ── WebSocket ──────────────────────────────────────────────────
-  function connectWS() {
-    return new Promise((resolve, reject) => {
-      if (ws && ws.readyState === WebSocket.OPEN) { resolve(ws); return; }
+refreshBtn.addEventListener('click', loadSessions);
+fab.addEventListener('click', openNewSessionModal);
 
-      const url = `ws://${location.host}/ws/gemini`;
-      const sock = new WebSocket(url);
+// ══════════════════════════════════════════════════════════════════
+// NEW SESSION MODAL
+// ══════════════════════════════════════════════════════════════════
+function openNewSessionModal() {
+  state.newSessionPath = '/';
+  state.newSessionMode = 'new';
+  newSessionPathEl.textContent = state.newSessionPath;
+  updatePills();
+  newSessionModal.classList.add('open');
+}
 
-      sock.onopen = () => {
-        setStatus('connected');
-        ws = sock;
-        resolve(sock);
-      };
-      sock.onerror = (e) => {
-        setStatus('error');
-        reject(new Error('WebSocket 연결 실패'));
-      };
-      sock.onclose = () => {
-        setStatus('');
-        ws = null;
-        if (streaming) {
-          streaming = false;
-          sendBtn.disabled = false;
-          if (currentGeminiBubble && currentGeminiText) {
-            updateGeminiBubble(currentGeminiBubble, currentGeminiText);
-          }
-        }
-      };
+function closeNewSessionModal() {
+  newSessionModal.classList.remove('open');
+}
+
+function updatePills() {
+  pillNew.classList.toggle('selected', state.newSessionMode === 'new');
+  pillCont.classList.toggle('selected', state.newSessionMode === 'continue');
+}
+
+newSessionClose.addEventListener('click', closeNewSessionModal);
+newSessionCancel.addEventListener('click', closeNewSessionModal);
+newSessionModal.addEventListener('click', e => {
+  if (e.target === newSessionModal) closeNewSessionModal();
+});
+
+// favorites in new-session modal
+newSessionModal.querySelectorAll('.fav-item').forEach(el => {
+  el.addEventListener('click', () => {
+    state.newSessionPath = el.dataset.path;
+    newSessionPathEl.textContent = state.newSessionPath;
+  });
+});
+
+// radio pills
+pillNew.addEventListener('click', () => {
+  state.newSessionMode = 'new';
+  updatePills();
+});
+pillCont.addEventListener('click', () => {
+  state.newSessionMode = 'continue';
+  updatePills();
+});
+
+// start button
+newSessionStart.addEventListener('click', async () => {
+  newSessionStart.disabled = true;
+  newSessionStart.innerHTML = '<div class="spinner"></div>';
+  try {
+    const res = await fetch('/api/sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        workdir: state.newSessionPath,
+        resume: state.newSessionMode === 'continue',
+      }),
     });
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(err || `HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    closeNewSessionModal();
+    await loadSessions();
+    enterChat(data.id, state.newSessionPath);
+  } catch (e) {
+    showToast('세션 생성 실패: ' + e.message, true);
+  } finally {
+    newSessionStart.disabled = false;
+    newSessionStart.textContent = '시작';
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════
+// DIRECTORY BROWSER MODAL
+// ══════════════════════════════════════════════════════════════════
+browseBtn.addEventListener('click', () => {
+  state.browsePath = state.newSessionPath || '/';
+  openBrowseModal();
+});
+
+async function openBrowseModal() {
+  browseModal.classList.add('open');
+  await renderBrowseList(state.browsePath);
+}
+
+function closeBrowseModal() {
+  browseModal.classList.remove('open');
+}
+
+browseClose.addEventListener('click',  closeBrowseModal);
+browseCancel.addEventListener('click', closeBrowseModal);
+browseModal.addEventListener('click',  e => { if (e.target === browseModal) closeBrowseModal(); });
+
+browseSelect.addEventListener('click', () => {
+  state.newSessionPath = state.browsePath;
+  newSessionPathEl.textContent = state.newSessionPath;
+  closeBrowseModal();
+});
+
+async function renderBrowseList(path) {
+  state.browsePath = path;
+  browseCurPath.textContent = path || '/';
+  browseList.innerHTML = `
+    <div class="browse-item">
+      <span>⏳</span>
+      <span class="bi-name">불러오는 중…</span>
+    </div>`;
+
+  let data;
+  try {
+    const res = await fetch(`/api/browse?path=${encodeURIComponent(path)}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    data = await res.json();
+  } catch (e) {
+    browseList.innerHTML = `<div class="browse-item" style="color:var(--danger)">불러오기 실패: ${escapeHtml(e.message)}</div>`;
+    return;
   }
 
-  async function sendMessage() {
-    const text = prompt.value.trim();
-    if (!text || streaming) return;
+  browseList.innerHTML = '';
 
-    const resume = [...radios].find(r => r.checked)?.value === 'continue';
+  // ".." parent
+  const parent = data.parent;
+  if (parent !== null && parent !== undefined) {
+    const item = document.createElement('div');
+    item.className = 'browse-item parent';
+    item.innerHTML = `<span>↩</span><span class="bi-name">.. (상위 폴더)</span>`;
+    item.addEventListener('click', () => renderBrowseList(parent));
+    browseList.appendChild(item);
+  }
 
-    // show user message
-    appendUserMessage(text);
-    prompt.value = '';
-    prompt.style.height = 'auto';
+  const entries = data.entries || [];
+  if (entries.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'browse-item';
+    empty.style.color = 'var(--text-muted)';
+    empty.textContent = '(하위 폴더 없음)';
+    browseList.appendChild(empty);
+    return;
+  }
 
-    // prepare gemini bubble
-    currentGeminiBubble = appendGeminiMessage();
-    currentGeminiText = '';
-    streaming = true;
-    sendBtn.disabled = true;
+  entries.forEach(entry => {
+    const item = document.createElement('div');
+    item.className = 'browse-item';
+    item.innerHTML = `<span>📂</span><span class="bi-name">${escapeHtml(entry.name)}</span>`;
+    item.addEventListener('click', () => renderBrowseList(entry.path));
+    browseList.appendChild(item);
+  });
+}
 
+// ══════════════════════════════════════════════════════════════════
+// SCREEN 2 — CHAT
+// ══════════════════════════════════════════════════════════════════
+function enterChat(sessionId, workdir) {
+  state.activeSessionId = sessionId;
+  state.activeWorkdir   = workdir || '/';
+
+  // update chat header
+  chatSessionId.textContent = `세션 ${sessionId ? sessionId.substring(0, 8) : '?'}`;
+  chatWorkdir.textContent   = state.activeWorkdir;
+
+  // clear messages
+  messagesEl.innerHTML = '';
+  chatEmpty.style.display = 'flex';
+  messagesEl.appendChild(chatEmpty);
+
+  // reset chat state
+  state.streaming = false;
+  state.currentGeminiBubble = null;
+  state.currentGeminiText   = '';
+  promptEl.value = '';
+  promptEl.style.height = 'auto';
+  sendBtn.disabled = false;
+  setStatus('');
+
+  showScreen('chat');
+  connectWS(sessionId);
+}
+
+backBtn.addEventListener('click', () => {
+  disconnectWS();
+  showScreen('list');
+  loadSessions();
+});
+
+deleteBtn.addEventListener('click', async () => {
+  if (!state.activeSessionId) return;
+  if (!confirm(`세션 ${state.activeSessionId.substring(0,8)}을 삭제하시겠습니까?`)) return;
+  try {
+    const res = await fetch(`/api/sessions/${encodeURIComponent(state.activeSessionId)}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    disconnectWS();
+    showScreen('list');
+    await loadSessions();
+    showToast('세션이 삭제되었습니다.');
+  } catch (e) {
+    showToast('삭제 실패: ' + e.message, true);
+  }
+});
+
+// ── Message rendering ───────────────────────────────────────────
+function hideEmptyState() {
+  if (chatEmpty.parentNode) chatEmpty.parentNode.removeChild(chatEmpty);
+}
+
+function appendUserBubble(text) {
+  hideEmptyState();
+  const row = document.createElement('div');
+  row.className = 'msg-row user';
+  row.innerHTML = `
+    <div class="bubble user">${escapeHtml(text)}</div>
+    <div class="avatar user-av">👤</div>
+  `;
+  messagesEl.appendChild(row);
+  scrollBottom(true);
+}
+
+function appendGeminiBubble() {
+  hideEmptyState();
+  const row = document.createElement('div');
+  row.className = 'msg-row gemini';
+  row.innerHTML = `
+    <div class="avatar gemini-av">✦</div>
+    <div class="bubble gemini">
+      <div class="typing-indicator">
+        <span></span><span></span><span></span>
+      </div>
+    </div>
+  `;
+  messagesEl.appendChild(row);
+  scrollBottom(true);
+  return row.querySelector('.bubble.gemini');
+}
+
+function appendErrorBubble(msg) {
+  hideEmptyState();
+  const row = document.createElement('div');
+  row.className = 'msg-row gemini';
+  row.innerHTML = `
+    <div class="avatar gemini-av">✦</div>
+    <div class="bubble gemini error-bubble">${escapeHtml(msg)}</div>
+  `;
+  messagesEl.appendChild(row);
+  scrollBottom(true);
+}
+
+function renderGeminiBubble(bubble, text) {
+  const html = marked.parse(text || '');
+  bubble.innerHTML = html || '<span style="color:var(--text-muted);font-style:italic">응답 없음</span>';
+  scrollBottom();
+}
+
+// ── WebSocket ──────────────────────────────────────────────────
+function connectWS(sessionId) {
+  disconnectWS();
+
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const url   = `${proto}://${location.host}/ws/session/${encodeURIComponent(sessionId)}`;
+  const sock  = new WebSocket(url);
+  state.ws = sock;
+
+  sock.onopen = () => {
+    setStatus('connected');
+  };
+
+  sock.onmessage = (evt) => {
+    let msg;
     try {
-      const sock = await connectWS();
-      setStatus('streaming');
-
-      // first message: config + prompt
-      sock.send(JSON.stringify({ workdir, resume, prompt: text }));
-
-      sock.onmessage = (evt) => {
-        const raw = evt.data;
-
-        if (raw.includes('\x00DONE')) {
-          // end of stream
-          const before = raw.replace('\x00DONE', '');
-          if (before) {
-            currentGeminiText += stripAnsi(before);
-          }
-          updateGeminiBubble(currentGeminiBubble, currentGeminiText);
-          currentGeminiBubble = null;
-          currentGeminiText = '';
-          streaming = false;
-          sendBtn.disabled = false;
-          setStatus('connected');
-          return;
-        }
-
-        const chunk = stripAnsi(raw);
-        currentGeminiText += chunk;
-
-        // live partial render (strip trailing incomplete markdown to avoid flicker)
-        const partial = marked.parse(currentGeminiText);
-        currentGeminiBubble.innerHTML = partial;
+      msg = JSON.parse(evt.data);
+    } catch {
+      // raw chunk fallback (shouldn't happen with new API)
+      if (state.currentGeminiBubble) {
+        state.currentGeminiText += stripAnsi(evt.data);
+        const partial = marked.parse(state.currentGeminiText);
+        state.currentGeminiBubble.innerHTML = partial;
         scrollBottom();
-      };
-
-      sock.onerror = () => {
-        showToast('연결 오류가 발생했습니다.');
-        setStatus('error');
-        if (currentGeminiBubble) {
-          currentGeminiBubble.innerHTML = '<span style="color:#e05252">연결 오류</span>';
-        }
-        streaming = false;
-        sendBtn.disabled = false;
-      };
-
-    } catch (err) {
-      showToast(err.message);
-      if (currentGeminiBubble) {
-        currentGeminiBubble.innerHTML = `<span style="color:#e05252">${escapeHtml(err.message)}</span>`;
       }
-      streaming = false;
-      sendBtn.disabled = false;
-      setStatus('error');
-    }
-  }
-
-  // ── Input keyboard handler ─────────────────────────────────────
-  prompt.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
-  });
-  sendBtn.addEventListener('click', sendMessage);
-
-  // ── Directory browser ──────────────────────────────────────────
-  async function fetchDirs(path) {
-    try {
-      const res = await fetch(`/api/browse?path=${encodeURIComponent(path)}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json(); // expected: { path, dirs: [...] }
-    } catch (e) {
-      showToast('디렉토리를 불러올 수 없습니다: ' + e.message);
-      return null;
-    }
-  }
-
-  async function openModal() {
-    browseDir = workdir;
-    modalOverlay.classList.add('open');
-    await renderDirList(browseDir);
-  }
-
-  async function renderDirList(path) {
-    browseDir = path;
-    modalPath.textContent = path || '/';
-    dirList.innerHTML = '<div class="dir-item"><span class="di-icon">⏳</span><span class="di-name">불러오는 중...</span></div>';
-
-    const data = await fetchDirs(path);
-    dirList.innerHTML = '';
-
-    if (!data) {
-      dirList.innerHTML = '<div class="dir-item" style="color:var(--text-dim)">불러오기 실패</div>';
       return;
     }
 
-    // parent entry
-    if (path && path !== '/') {
-      const parent = path.split('/').slice(0, -1).join('/') || '/';
-      const item = document.createElement('div');
-      item.className = 'dir-item parent';
-      item.innerHTML = `<span class="di-icon">↩</span><span class="di-name">.. (상위 폴더)</span>`;
-      item.addEventListener('click', () => renderDirList(parent));
-      dirList.appendChild(item);
+    handleWsMessage(msg);
+  };
+
+  sock.onerror = () => {
+    setStatus('error');
+    if (state.streaming && state.currentGeminiBubble) {
+      renderGeminiBubble(state.currentGeminiBubble, state.currentGeminiText || '');
+      finishStreaming();
+    }
+    showToast('WebSocket 오류가 발생했습니다.', true);
+  };
+
+  sock.onclose = (e) => {
+    setStatus('');
+    state.ws = null;
+    if (state.streaming) {
+      if (state.currentGeminiBubble && state.currentGeminiText) {
+        renderGeminiBubble(state.currentGeminiBubble, state.currentGeminiText);
+      }
+      finishStreaming();
+    }
+  };
+}
+
+function disconnectWS() {
+  if (state.ws) {
+    state.ws.onclose = null;
+    state.ws.close();
+    state.ws = null;
+  }
+  setStatus('');
+}
+
+function finishStreaming() {
+  state.streaming = false;
+  state.currentGeminiBubble = null;
+  state.currentGeminiText   = '';
+  sendBtn.disabled = false;
+  if (state.ws) setStatus('connected');
+}
+
+function handleWsMessage(msg) {
+  switch (msg.role) {
+    case 'user':
+      appendUserBubble(msg.content || '');
+      break;
+
+    case 'gemini_start':
+      state.currentGeminiBubble = appendGeminiBubble();
+      state.currentGeminiText   = '';
+      state.streaming = true;
+      sendBtn.disabled = true;
+      setStatus('streaming');
+      break;
+
+    case 'gemini_chunk': {
+      if (!state.currentGeminiBubble) {
+        // late start — create bubble
+        state.currentGeminiBubble = appendGeminiBubble();
+        state.currentGeminiText   = '';
+        state.streaming = true;
+        sendBtn.disabled = true;
+        setStatus('streaming');
+      }
+      const chunk = stripAnsi(msg.content || '');
+      state.currentGeminiText += chunk;
+      // live partial render
+      state.currentGeminiBubble.innerHTML = marked.parse(state.currentGeminiText);
+      scrollBottom();
+      break;
     }
 
-    const entries = data.entries || [];
-    if (entries.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'dir-item';
-      empty.style.color = 'var(--text-dim)';
-      empty.textContent = '(하위 폴더 없음)';
-      dirList.appendChild(empty);
-      return;
-    }
+    case 'gemini_done':
+      if (state.currentGeminiBubble) {
+        renderGeminiBubble(state.currentGeminiBubble, state.currentGeminiText);
+      }
+      finishStreaming();
+      if (state.ws) setStatus('connected');
+      break;
 
-    entries.forEach(entry => {
-      const item = document.createElement('div');
-      item.className = 'dir-item';
-      item.innerHTML = `<span class="di-icon">📂</span><span class="di-name">${escapeHtml(entry.name)}</span>`;
-      item.addEventListener('click', () => renderDirList(entry.path));
-      dirList.appendChild(item);
-    });
+    case 'error':
+      appendErrorBubble(msg.content || '알 수 없는 오류');
+      if (state.currentGeminiBubble) finishStreaming();
+      break;
+
+    default:
+      break;
+  }
+}
+
+// ── Send message ──────────────────────────────────────────────
+function sendMessage() {
+  const text = promptEl.value.trim();
+  if (!text || state.streaming) return;
+  if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
+    showToast('연결이 끊겼습니다. 페이지를 새로고침하세요.', true);
+    return;
   }
 
-  // Favorites click
-  document.querySelectorAll('.fav-item').forEach(el => {
-    el.addEventListener('click', () => renderDirList(el.dataset.path));
-  });
+  promptEl.value = '';
+  promptEl.style.height = 'auto';
 
-  changeDirBtn.addEventListener('click', openModal);
+  state.ws.send(JSON.stringify({ prompt: text }));
+}
 
-  modalCancel.addEventListener('click', () => {
-    modalOverlay.classList.remove('open');
-  });
-
-  modalSelect.addEventListener('click', () => {
-    workdir = browseDir || '/';
-    workdirLabel.textContent = workdir;
-    modalOverlay.classList.remove('open');
-  });
-
-  modalOverlay.addEventListener('click', (e) => {
-    if (e.target === modalOverlay) modalOverlay.classList.remove('open');
-  });
-
-  // ── Init ───────────────────────────────────────────────────────
-  async function init() {
-    // try to fetch initial workdir from /api/browse
-    const data = await fetchDirs('/');
-    if (data) {
-      workdir = data.path || '/';
-      workdirLabel.textContent = workdir;
-    }
-
-    // try to pre-connect WS (non-blocking)
-    connectWS().catch(() => {});
+promptEl.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
   }
+});
+sendBtn.addEventListener('click', sendMessage);
 
-  init();
+// textarea auto-grow
+promptEl.addEventListener('input', () => {
+  promptEl.style.height = 'auto';
+  const lineH = parseFloat(getComputedStyle(promptEl).lineHeight);
+  const maxH  = lineH * 6 + 18;
+  promptEl.style.height = Math.min(promptEl.scrollHeight, maxH) + 'px';
+});
+
+// ══════════════════════════════════════════════════════════════════
+// Init
+// ══════════════════════════════════════════════════════════════════
+loadSessions();
 </script>
 </body>
 </html>
