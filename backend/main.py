@@ -35,6 +35,24 @@ LEFTOVER_RE = re.compile(r'(?:\d+;)+[^\s\w가-힣]*|^\s*\d+;')
 MEANINGFUL_RE = re.compile(r'[a-zA-Z가-힣\d]{3,}')
 # Also keep markdown structure lines
 MARKDOWN_RE = re.compile(r'^[\s]*(?:#{1,6}\s|[-*+]\s|>\s|`{3}|\d+\.\s|---+|===+)')
+# Gemini CLI status bar / TUI chrome lines to always exclude
+GEMINI_UI_RE = re.compile(
+    r'^\s*(?:'
+    r'\?.*for'                      # "? for shortcuts"
+    r'|~/'                           # shell path lines (~/...)
+    r'|workspace\s*[\(/]'           # workspace status bar
+    r'|Ctrl\+[A-Z]'                 # keyboard shortcut hints
+    r'|Shift\+Tab'
+    r'|Type your message'
+    r'|no sandbox'
+    r'|Signed in with'
+    r'|Plan:\s*Gemini'
+    r'|Gemini CLI v'
+    r'|Installed with npm'
+    r'|update available'
+    r')',
+    re.IGNORECASE
+)
 
 
 def clean_output(raw: bytes) -> str:
@@ -53,7 +71,8 @@ def clean_output(raw: bytes) -> str:
         stripped = line.strip()
         if not stripped:
             filtered.append('')  # preserve blank lines for paragraph spacing
-        elif MEANINGFUL_RE.search(stripped) or MARKDOWN_RE.match(stripped):
+        elif (MEANINGFUL_RE.search(stripped) or MARKDOWN_RE.match(stripped)) \
+                and not GEMINI_UI_RE.match(stripped):
             filtered.append(line)
         # else: discard TUI noise
     # 4. Collapse 3+ consecutive blank lines into 1
