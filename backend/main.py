@@ -17,26 +17,53 @@ import uvicorn
 app = FastAPI()
 
 # ── ANSI / TUI output cleaning ───────────────────────────────────────────────
-ANSI_RE = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~]|\].*?[\x07\x1B\\])')
-# Box-drawing / spinner-only lines to filter out
-NOISE_RE = re.compile(r'^[\s╭╮╰╯│─▀▄▝▜▗▟✦⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏\u2800-\u28ff\u2500-\u257f]+$')
+# Full ANSI escape sequence patterns
+ANSI_RE = re.compile(
+    r'\x1B'
+    r'(?:'
+    r'[@-Z\\-_]'                    # Fe sequences
+    r'|\[[0-?]*[ -/]*[@-~]'         # CSI sequences (includes SGR color codes)
+    r'|\][^\x07\x1B]*(?:\x07|\x1B\\)'  # OSC sequences
+    r'|[PX^_][^\x1B]*\x1B\\'        # DCS/SOS/PM/APC
+    r'|\([0-9A-Z]'                  # Charset designation
+    r')'
+)
+# Leftover escape fragments after stripping (e.g. "[38;2;255m" without ESC)
+ESCAPE_FRAG_RE = re.compile(r'\[\d+(?:;\d+)*[mGKHFJABCDsu]?')
+# Lines that are purely TUI decoration
+NOISE_RE = re.compile(
+    r'^[\s'
+    r'╭╮╰╯│─━═┌┐└┘├┤┬┴┼'   # box drawing
+    r'▀▄▌▐█▝▜▗▟▞▚░▒▓'        # block elements
+    r'⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'            # braille spinners
+    r'\u2500-\u257f'           # box drawing range
+    r'\u2800-\u28ff'           # braille range
+    r'✦◇'
+    r']+$'
+)
+# Gemini CLI UI hint lines
+HINT_RE = re.compile(r'^\s*(?:\?.*shortcuts|Shift\+Tab|workspace.*sandbox|~/.*sandbox|Type your message)')
 
 def clean_output(raw: bytes) -> str:
     text = raw.decode("utf-8", errors="replace")
-    # Strip ANSI escape codes
+    # Strip full ANSI escape sequences
     text = ANSI_RE.sub('', text)
-    # Handle carriage returns: keep only the last segment on each line
+    # Strip leftover escape fragments (e.g. "[38;2;25m")
+    text = ESCAPE_FRAG_RE.sub('', text)
+    # Handle carriage returns: keep last segment only
     lines = []
     for line in text.split('\n'):
         parts = line.split('\r')
         lines.append(parts[-1])
     text = '\n'.join(lines)
-    # Filter noise-only lines, keep meaningful content
+    # Filter noise-only and UI hint lines
     filtered = []
     for line in text.split('\n'):
-        if not NOISE_RE.match(line):
+        if not NOISE_RE.match(line) and not HINT_RE.match(line):
             filtered.append(line)
-    return '\n'.join(filtered)
+    # Collapse 3+ consecutive blank lines to 1
+    result = re.sub(r'\n{3,}', '\n\n', '\n'.join(filtered))
+    return result
 
 # ── Idle timeout: seconds of silence = Gemini done responding ────────────────
 IDLE_TIMEOUT = 0.8
