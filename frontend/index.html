@@ -339,6 +339,9 @@
       border-bottom: 1px solid var(--border);
     }
     .modal-header h3 { font-size: 15px; font-weight: 600; }
+    #dir-favorites { border-bottom: 1px solid var(--border); padding: 6px 0; }
+    .fav-label { font-size: 11px; color: var(--text-dim); padding: 2px 16px 4px; text-transform: uppercase; letter-spacing: 0.05em; }
+    .fav-item { border-radius: 0; }
     #modal-path {
       flex: 1;
       font-size: 12px;
@@ -503,6 +506,15 @@
     <div class="modal-header">
       <h3>디렉토리 선택</h3>
       <span id="modal-path">/</span>
+    </div>
+    <div id="dir-favorites">
+      <div class="fav-label">즐겨찾기</div>
+      <div class="dir-item fav-item" data-path="/Users/juitem/Documents/ObsidianM4mini">
+        <span class="di-icon">📔</span><span class="di-name">ObsidianM4mini</span>
+      </div>
+      <div class="dir-item fav-item" data-path="/Users/juitem/M4mini">
+        <span class="di-icon">💻</span><span class="di-name">M4mini</span>
+      </div>
     </div>
     <div id="dir-list"></div>
     <div class="modal-footer">
@@ -811,8 +823,8 @@
       dirList.appendChild(item);
     }
 
-    const dirs = data.dirs || [];
-    if (dirs.length === 0) {
+    const entries = data.entries || [];
+    if (entries.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'dir-item';
       empty.style.color = 'var(--text-dim)';
@@ -821,15 +833,19 @@
       return;
     }
 
-    dirs.forEach(name => {
+    entries.forEach(entry => {
       const item = document.createElement('div');
       item.className = 'dir-item';
-      item.innerHTML = `<span class="di-icon">📂</span><span class="di-name">${escapeHtml(name)}</span>`;
-      const fullPath = (path === '/' ? '' : path) + '/' + name;
-      item.addEventListener('click', () => renderDirList(fullPath));
+      item.innerHTML = `<span class="di-icon">📂</span><span class="di-name">${escapeHtml(entry.name)}</span>`;
+      item.addEventListener('click', () => renderDirList(entry.path));
       dirList.appendChild(item);
     });
   }
+
+  // Favorites click
+  document.querySelectorAll('.fav-item').forEach(el => {
+    el.addEventListener('click', () => renderDirList(el.dataset.path));
+  });
 
   changeDirBtn.addEventListener('click', openModal);
 
