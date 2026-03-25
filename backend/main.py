@@ -17,51 +17,46 @@ import uvicorn
 app = FastAPI()
 
 # ── ANSI / TUI output cleaning ───────────────────────────────────────────────
-# Full ANSI escape sequence patterns
+# OSC sequences MUST come before the single-char Fe pattern to avoid partial match
 ANSI_RE = re.compile(
     r'\x1B'
     r'(?:'
-    r'[@-Z\\-_]'                    # Fe sequences
-    r'|\[[0-?]*[ -/]*[@-~]'         # CSI sequences (includes SGR color codes)
-    r'|\][^\x07\x1B]*(?:\x07|\x1B\\)'  # OSC sequences
-    r'|[PX^_][^\x1B]*\x1B\\'        # DCS/SOS/PM/APC
-    r'|\([0-9A-Z]'                  # Charset designation
+    r'\][^\x07\x1B]*(?:\x07|\x1B\\)?'  # OSC (e.g. \x1b]0;title\x07)
+    r'|[PX^_][^\x1B]*(?:\x1B\\)?'      # DCS/SOS/PM/APC
+    r'|\[[0-?]*[ -/]*[@-~]'            # CSI sequences (colors, cursor, etc.)
+    r'|[@-Z\\-_]'                       # Fe single-char sequences
     r')'
 )
-# Leftover escape fragments after stripping (e.g. "[38;2;255m" without ESC)
-ESCAPE_FRAG_RE = re.compile(r'\[\d+(?:;\d+)*[mGKHFJABCDsu]?')
-# Lines that are purely TUI decoration
-NOISE_RE = re.compile(
-    r'^[\s'
-    r'╭╮╰╯│─━═┌┐└┘├┤┬┴┼'   # box drawing
-    r'▀▄▌▐█▝▜▗▟▞▚░▒▓'        # block elements
-    r'⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'            # braille spinners
-    r'\u2500-\u257f'           # box drawing range
-    r'\u2800-\u28ff'           # braille range
-    r'✦◇'
-    r']+$'
-)
-# Gemini CLI UI hint lines
-HINT_RE = re.compile(r'^\s*(?:\?.*shortcuts|Shift\+Tab|workspace.*sandbox|~/.*sandbox|Type your message)')
+# After ANSI strip, catch leftover fragments like "[38;2;25" or "0;◇ Ready"
+LEFTOVER_RE = re.compile(r'(?:\d+;)+[^\s\w가-힣]*|^\s*\d+;')
+
+# Positive filter: a line is meaningful if it contains 3+ consecutive
+# letters/digits (ASCII or Korean) — i.e. actual words/content
+MEANINGFUL_RE = re.compile(r'[a-zA-Z가-힣\d]{3,}')
+# Also keep markdown structure lines
+MARKDOWN_RE = re.compile(r'^[\s]*(?:#{1,6}\s|[-*+]\s|>\s|`{3}|\d+\.\s|---+|===+)')
+
 
 def clean_output(raw: bytes) -> str:
     text = raw.decode("utf-8", errors="replace")
-    # Strip full ANSI escape sequences
+    # 1. Strip ANSI escape sequences
     text = ANSI_RE.sub('', text)
-    # Strip leftover escape fragments (e.g. "[38;2;25m")
-    text = ESCAPE_FRAG_RE.sub('', text)
-    # Handle carriage returns: keep last segment only
-    lines = []
+    # 2. Handle carriage returns: keep last segment per line
+    lines_cr = []
     for line in text.split('\n'):
         parts = line.split('\r')
-        lines.append(parts[-1])
-    text = '\n'.join(lines)
-    # Filter noise-only and UI hint lines
+        lines_cr.append(parts[-1])
+    text = '\n'.join(lines_cr)
+    # 3. Positive filter: keep only meaningful lines
     filtered = []
-    for line in text.split('\n'):
-        if not NOISE_RE.match(line) and not HINT_RE.match(line):
+    for line in lines_cr:
+        stripped = line.strip()
+        if not stripped:
+            filtered.append('')  # preserve blank lines for paragraph spacing
+        elif MEANINGFUL_RE.search(stripped) or MARKDOWN_RE.match(stripped):
             filtered.append(line)
-    # Collapse 3+ consecutive blank lines to 1
+        # else: discard TUI noise
+    # 4. Collapse 3+ consecutive blank lines into 1
     result = re.sub(r'\n{3,}', '\n\n', '\n'.join(filtered))
     return result
 
