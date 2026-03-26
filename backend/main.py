@@ -9,7 +9,7 @@ import json
 import uuid
 from datetime import datetime
 from typing import Dict, List, Optional
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 import uvicorn
@@ -311,6 +311,26 @@ async def delete_session(sid: str):
         return JSONResponse({"error": "Not found"}, status_code=404)
     await sessions[sid].stop()
     del sessions[sid]
+    return {"ok": True}
+
+
+FAVORITES_FILE = os.path.join(os.path.dirname(__file__), "..", "favorites.json")
+
+
+@app.get("/api/favorites")
+def get_favorites():
+    try:
+        with open(FAVORITES_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return []
+
+
+@app.put("/api/favorites")
+async def save_favorites(req: Request):
+    body = await req.json()
+    with open(FAVORITES_FILE, "w", encoding="utf-8") as f:
+        json.dump(body, f, ensure_ascii=False, indent=2)
     return {"ok": True}
 
 
