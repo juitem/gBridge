@@ -30,3 +30,6 @@ logs/
 
 # Runtime / temp
 *.pid
+
+# Session data (personal conversation history)
+sessions/
