@@ -310,6 +310,12 @@
       margin-top: 1px;
     }
     .fav-item .fav-info { display: flex; flex-direction: column; gap: 1px; }
+    .fav-del-btn {
+      background: none; border: none; color: var(--text-muted); cursor: pointer;
+      font-size: 13px; padding: 4px 6px; border-radius: 4px; line-height: 1;
+      flex-shrink: 0;
+    }
+    .fav-del-btn:hover { background: var(--danger); color: #fff; }
 
     .dir-browse-row {
       display: flex;
@@ -796,6 +802,14 @@
       </div>
     </div>
     <div id="status-dot" title="연결 상태"></div>
+    <button class="icon-btn" id="export-btn" title="대화 내보내기">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+        <polyline points="7 10 12 15 17 10"></polyline>
+        <line x1="12" y1="15" x2="12" y2="3"></line>
+      </svg>
+    </button>
     <button class="icon-btn" id="fullscreen-btn-chat" title="전체화면">
       <svg id="fs-icon-chat" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -879,6 +893,25 @@
           ↩ Continue
         </label>
       </div>
+
+      <div style="padding:0 16px 8px;">
+        <div class="dir-picker-label" style="margin-bottom:6px;">세션 이름 (선택)</div>
+        <input id="new-session-name" type="text" placeholder="예: 프로젝트 A"
+          style="width:100%;background:var(--surface2);border:1px solid var(--border);
+                 border-radius:8px;color:var(--text);padding:9px 12px;font-size:14px;outline:none;" />
+      </div>
+
+      <div style="padding:0 16px 12px;">
+        <div class="dir-picker-label" style="margin-bottom:6px;">모델</div>
+        <select id="new-session-model"
+          style="width:100%;background:var(--surface2);border:1px solid var(--border);
+                 border-radius:8px;color:var(--text);padding:9px 12px;font-size:14px;outline:none;appearance:none;">
+          <option value="">기본 (Gemini CLI 설정)</option>
+          <option value="gemini-2.5-pro-preview-03-25">Gemini 2.5 Pro Preview</option>
+          <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+          <option value="gemini-2.0-flash-thinking-exp-01-21">Gemini 2.0 Flash Thinking</option>
+        </select>
+      </div>
     </div>
 
     <div class="sheet-footer">
@@ -905,6 +938,7 @@
     <div id="browse-list"></div>
     <div class="browse-footer">
       <button class="btn-secondary" id="browse-cancel">취소</button>
+      <button class="btn-outline" id="browse-fav-add" title="즐겨찾기에 추가">★ 즐겨찾기</button>
       <button class="btn-primary" id="browse-select">이 폴더 선택</button>
     </div>
   </div>
@@ -931,6 +965,8 @@ const state = {
   // new session form
   newSessionPath: '/',
   newSessionMode: 'new',   // 'new' | 'continue'
+  newSessionName: '',
+  newSessionModel: '',
 
   // browse modal
   browsePath: '/',
@@ -938,10 +974,14 @@ const state = {
   // chat
   activeSessionId: null,
   activeWorkdir:   null,
+  activeSessionName: '',
   ws:              null,
   streaming:       false,
   currentGeminiBubble: null,
   currentGeminiText:   '',
+
+  // favorites (cached)
+  favorites: [],
 };
 
 // ══════════════════════════════════════════════════════════════════
@@ -982,6 +1022,8 @@ const newSessionClose   = document.getElementById('new-session-close');
 const newSessionCancel  = document.getElementById('new-session-cancel');
 const newSessionStart   = document.getElementById('new-session-start');
 const newSessionPathEl  = document.getElementById('new-session-path');
+const newSessionNameEl  = document.getElementById('new-session-name');
+const newSessionModelEl = document.getElementById('new-session-model');
 const browseBtn         = document.getElementById('browse-btn');
 const pillNew           = document.getElementById('pill-new');
 const pillCont          = document.getElementById('pill-cont');
@@ -997,6 +1039,7 @@ const browseList        = document.getElementById('browse-list');
 // chat screen
 const backBtn           = document.getElementById('back-btn');
 const deleteBtn         = document.getElementById('delete-btn');
+const exportBtn         = document.getElementById('export-btn');
 const chatSessionId     = document.getElementById('chat-session-id');
 const chatWorkdir       = document.getElementById('chat-workdir');
 const chatSubheader     = document.getElementById('chat-subheader');
@@ -1100,10 +1143,11 @@ function renderSessionList() {
     const msgCount = s.message_count != null ? `메시지 ${s.message_count}개` : '';
     const meta = [msgCount, timeAgo].filter(Boolean).join(' · ');
 
+    const displayName = s.name || `세션 ${shortId}`;
     card.innerHTML = `
       <div class="session-card-title">
         <span class="session-icon">💬</span>
-        <span class="session-id">세션 ${shortId}</span>
+        <span class="session-id">${escapeHtml(displayName)}</span>
       </div>
       <div class="session-card-workdir">
         <span>📁</span>
@@ -1111,7 +1155,7 @@ function renderSessionList() {
       </div>
       ${meta ? `<div class="session-card-meta">${escapeHtml(meta)}</div>` : ''}
     `;
-    card.addEventListener('click', () => enterChat(s.id, s.workdir));
+    card.addEventListener('click', () => enterChat(s.id, s.workdir, s.name));
     sessionContainer.appendChild(card);
   });
 }
@@ -1125,7 +1169,11 @@ fab.addEventListener('click', openNewSessionModal);
 function openNewSessionModal() {
   state.newSessionPath = '/';
   state.newSessionMode = 'new';
+  state.newSessionName = '';
+  state.newSessionModel = '';
   newSessionPathEl.textContent = state.newSessionPath;
+  newSessionNameEl.value = '';
+  newSessionModelEl.value = '';
   updatePills();
   newSessionModal.classList.add('open');
 }
@@ -1145,34 +1193,54 @@ newSessionModal.addEventListener('click', e => {
   if (e.target === newSessionModal) closeNewSessionModal();
 });
 
-// favorites — load from /api/favorites
+// favorites — load/render/save
 const favList = document.getElementById('fav-list');
-function bindFavItem(el) {
-  el.addEventListener('click', () => {
-    state.newSessionPath = el.dataset.path;
-    newSessionPathEl.textContent = state.newSessionPath;
-  });
-}
+
 async function loadFavorites() {
   try {
-    const favs = await fetch('/api/favorites').then(r => r.json());
-    favList.innerHTML = '';
-    favs.forEach(fav => {
-      const el = document.createElement('div');
-      el.className = 'fav-item';
-      el.dataset.path = fav.path;
-      el.innerHTML = `<span style="font-size:18px">📁</span>
-        <div class="fav-info">
-          <span style="font-size:14px;font-weight:500">${fav.name}</span>
-          <span class="fav-path">${fav.path}</span>
-        </div>`;
-      bindFavItem(el);
-      favList.appendChild(el);
-    });
+    state.favorites = await fetch('/api/favorites').then(r => r.json());
   } catch (e) {
-    favList.innerHTML = '<span style="color:var(--text-muted);font-size:13px;padding:8px">즐겨찾기 없음</span>';
+    state.favorites = [];
   }
+  renderFavorites();
 }
+
+function renderFavorites() {
+  favList.innerHTML = '';
+  if (!state.favorites.length) {
+    favList.innerHTML = '<span style="color:var(--text-muted);font-size:13px;padding:8px">즐겨찾기 없음 — 탐색 후 ★ 버튼으로 추가하세요</span>';
+    return;
+  }
+  state.favorites.forEach((fav, idx) => {
+    const el = document.createElement('div');
+    el.className = 'fav-item';
+    el.dataset.path = fav.path;
+    el.innerHTML = `<span style="font-size:18px">📁</span>
+      <div class="fav-info" style="flex:1">
+        <span style="font-size:14px;font-weight:500">${escapeHtml(fav.name)}</span>
+        <span class="fav-path">${escapeHtml(fav.path)}</span>
+      </div>
+      <button class="fav-del-btn" data-idx="${idx}" title="삭제" onclick="removeFavorite(event,${idx})">✕</button>`;
+    el.addEventListener('click', e => {
+      if (e.target.closest('.fav-del-btn')) return;
+      state.newSessionPath = fav.path;
+      newSessionPathEl.textContent = state.newSessionPath;
+    });
+    favList.appendChild(el);
+  });
+}
+
+async function removeFavorite(e, idx) {
+  e.stopPropagation();
+  state.favorites.splice(idx, 1);
+  renderFavorites();
+  await fetch('/api/favorites', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(state.favorites),
+  });
+}
+
 loadFavorites();
 
 // radio pills
@@ -1196,6 +1264,8 @@ newSessionStart.addEventListener('click', async () => {
       body: JSON.stringify({
         workdir: state.newSessionPath,
         resume: state.newSessionMode === 'continue',
+        name: newSessionNameEl.value.trim(),
+        model: newSessionModelEl.value,
       }),
     });
     if (!res.ok) {
@@ -1205,7 +1275,7 @@ newSessionStart.addEventListener('click', async () => {
     const data = await res.json();
     closeNewSessionModal();
     await loadSessions();
-    enterChat(data.id, state.newSessionPath);
+    enterChat(data.id, state.newSessionPath, newSessionNameEl.value.trim());
   } catch (e) {
     showToast('세션 생성 실패: ' + e.message, true);
   } finally {
@@ -1239,6 +1309,23 @@ browseSelect.addEventListener('click', () => {
   state.newSessionPath = state.browsePath;
   newSessionPathEl.textContent = state.newSessionPath;
   closeBrowseModal();
+});
+
+document.getElementById('browse-fav-add').addEventListener('click', async () => {
+  const path = state.browsePath;
+  const name = path.split('/').filter(Boolean).pop() || path;
+  if (state.favorites.some(f => f.path === path)) {
+    showToast('이미 즐겨찾기에 있습니다.');
+    return;
+  }
+  state.favorites.push({ name, path });
+  renderFavorites();
+  await fetch('/api/favorites', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(state.favorites),
+  });
+  showToast('즐겨찾기에 추가되었습니다.');
 });
 
 async function renderBrowseList(path) {
@@ -1294,12 +1381,13 @@ async function renderBrowseList(path) {
 // ══════════════════════════════════════════════════════════════════
 // SCREEN 2 — CHAT
 // ══════════════════════════════════════════════════════════════════
-function enterChat(sessionId, workdir) {
-  state.activeSessionId = sessionId;
-  state.activeWorkdir   = workdir || '/';
+function enterChat(sessionId, workdir, name) {
+  state.activeSessionId   = sessionId;
+  state.activeWorkdir     = workdir || '/';
+  state.activeSessionName = name || '';
 
-  // update chat header
-  chatSessionId.textContent = `세션 ${sessionId ? sessionId.substring(0, 8) : '?'}`;
+  const displayName = name || `세션 ${sessionId ? sessionId.substring(0, 8) : '?'}`;
+  chatSessionId.textContent = displayName;
   chatWorkdir.textContent   = state.activeWorkdir;
 
   // clear messages
@@ -1324,6 +1412,14 @@ backBtn.addEventListener('click', () => {
   disconnectWS();
   showScreen('list');
   loadSessions();
+});
+
+exportBtn.addEventListener('click', () => {
+  if (!state.activeSessionId) return;
+  const a = document.createElement('a');
+  a.href = `/api/sessions/${encodeURIComponent(state.activeSessionId)}/export`;
+  a.download = '';
+  a.click();
 });
 
 deleteBtn.addEventListener('click', async () => {
@@ -1547,6 +1643,7 @@ function handleWsMessage(msg) {
       }
       finishStreaming();
       if (state.ws) setStatus('connected');
+      notifyDone();
       break;
 
     case 'error':
@@ -1589,6 +1686,29 @@ promptEl.addEventListener('input', () => {
   const maxH  = lineH * 6 + 18;
   promptEl.style.height = Math.min(promptEl.scrollHeight, maxH) + 'px';
 });
+
+// ══════════════════════════════════════════════════════════════════
+// Completion notification — sound + vibration
+// ══════════════════════════════════════════════════════════════════
+function notifyDone() {
+  // Vibration (mobile)
+  if (navigator.vibrate) navigator.vibrate([40, 30, 40]);
+
+  // Soft beep via Web Audio API
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    gain.gain.setValueAtTime(0.12, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.25);
+  } catch (_) {}
+}
 
 // ══════════════════════════════════════════════════════════════════
 // Init

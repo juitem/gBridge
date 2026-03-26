@@ -1,4 +1,5 @@
 import asyncio
+import glob
 import os
 import pty
 import select
@@ -9,60 +10,44 @@ import json
 import uuid
 from datetime import datetime
 from typing import Dict, List, Optional
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse
 import uvicorn
 
 app = FastAPI()
 
+# ── Paths ─────────────────────────────────────────────────────────────────────
+_BASE = os.path.dirname(os.path.abspath(__file__))
+SESSIONS_DIR  = os.path.join(_BASE, "..", "sessions")
+FAVORITES_FILE = os.path.join(_BASE, "..", "favorites.json")
+os.makedirs(SESSIONS_DIR, exist_ok=True)
+
 # ── ANSI / TUI output cleaning ───────────────────────────────────────────────
-# OSC sequences MUST come before the single-char Fe pattern to avoid partial match
 ANSI_RE = re.compile(
     r'\x1B'
     r'(?:'
-    r'\][^\x07\x1B]*(?:\x07|\x1B\\)?'  # OSC (e.g. \x1b]0;title\x07)
-    r'|[PX^_][^\x1B]*(?:\x1B\\)?'      # DCS/SOS/PM/APC
-    r'|\[[0-?]*[ -/]*[@-~]'            # CSI sequences (colors, cursor, etc.)
-    r'|[@-Z\\-_]'                       # Fe single-char sequences
+    r'\][^\x07\x1B]*(?:\x07|\x1B\\)?'
+    r'|[PX^_][^\x1B]*(?:\x1B\\)?'
+    r'|\[[0-?]*[ -/]*[@-~]'
+    r'|[@-Z\\-_]'
     r')'
 )
-# Positive filter: a line is meaningful if it contains 2+ consecutive
-# letters/digits (ASCII or Korean) — i.e. actual words/content
 MEANINGFUL_RE = re.compile(r'[a-zA-Z가-힣\d]{2,}')
-# Also keep markdown structure lines
 MARKDOWN_RE = re.compile(r'^[\s]*(?:#{1,6}\s|[-*+]\s|>\s|`{3}|\d+\.\s|---+|===+)')
-# Gemini CLI status bar / TUI chrome lines to always exclude
 GEMINI_UI_RE = re.compile(
     r'^\s*(?:'
-    r'\?.*for'                      # "? for shortcuts"
-    r'|~/'                           # shell path lines (~/...)
-    r'|workspace\s*[\(/]'           # workspace status bar
-    r'|Ctrl\+[A-Z]'                 # keyboard shortcut hints
-    r'|Shift\+Tab'
-    r'|Type your message'
-    r'|no sandbox'
-    r'|Signed in with'
-    r'|Plan:\s*Gemini'
-    r'|Gemini CLI v'
-    r'|Installed with npm'
-    r'|update available'
-    r'|Waiting for auth'            # startup spinner
-    r'|cancel\)'                    # "(Press Esc or Ctrl+C to cancel)"
-    r"|We.re making changes"        # policy notice
-    r"|What.s Changing"
-    r'|policy.violating'
-    r'|prioritize traffic'
-    r'|capacity.related'
-    r'|Read more:'
-    r'|geminicli-updates'
-    r'|affects you'
-    r'|high traffic'
-    r'|workflow\.'
+    r'\?.*for|~/'
+    r'|workspace\s*[\(/]|Ctrl\+[A-Z]|Shift\+Tab'
+    r'|Type your message|no sandbox|Signed in with'
+    r'|Plan:\s*Gemini|Gemini CLI v|Installed with npm'
+    r'|update available|Waiting for auth|cancel\)'
+    r"|We.re making changes|What.s Changing"
+    r'|policy.violating|prioritize traffic|capacity.related'
+    r'|Read more:|geminicli-updates|affects you|high traffic|workflow\.'
     r')',
     re.IGNORECASE
 )
-# Initialization / retry noise from headless mode stderr (merged into stdout via PTY)
 INIT_NOISE_RE = re.compile(
     r'(?:Loaded cached credentials|Attempt \d+ failed|Retrying with backoff|GaxiosError)',
     re.IGNORECASE
@@ -71,62 +56,68 @@ INIT_NOISE_RE = re.compile(
 
 def clean_output(raw: bytes) -> str:
     text = raw.decode("utf-8", errors="replace")
-    # 1. Strip ANSI escape sequences
     text = ANSI_RE.sub('', text)
-    # 1b. Strip incomplete CSI sequences cut off at chunk boundary (e.g. \x1b[38;2;25)
     text = re.sub(r'\x1b\[[0-9;]*', '', text)
-    # 1c. Strip box-drawing chars Gemini CLI uses to frame responses
     text = re.sub(r'[│┤╢╖╕╣║╗╝╜╛┐└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌╡]', '', text)
-    # 2. Handle carriage returns: keep last segment per line
     lines_cr = []
     for line in text.split('\n'):
-        parts = line.split('\r')
-        lines_cr.append(parts[-1])
-    # 3. Positive filter: keep only meaningful lines
+        lines_cr.append(line.split('\r')[-1])
     filtered = []
     for line in lines_cr:
         stripped = line.strip()
         if not stripped:
-            filtered.append('')  # preserve blank lines for paragraph spacing
+            filtered.append('')
         elif INIT_NOISE_RE.search(stripped):
-            pass  # discard init/retry messages
+            pass
         elif (MEANINGFUL_RE.search(stripped) or MARKDOWN_RE.match(stripped)) \
                 and not GEMINI_UI_RE.match(stripped) \
                 and 'no sandbox' not in stripped.lower():
             filtered.append(line)
-        # else: discard TUI noise
-    # 4. Collapse 3+ consecutive blank lines into 1
-    result = re.sub(r'\n{3,}', '\n\n', '\n'.join(filtered))
-    return result
+    return re.sub(r'\n{3,}', '\n\n', '\n'.join(filtered))
 
 
 # ── Session ──────────────────────────────────────────────────────────────────
 class Session:
     def __init__(self, sid: str, workdir: str):
         self.id = sid
+        self.name: str = ""
         self.workdir = workdir
+        self.model: str = ""
         self.created_at = datetime.now().isoformat()
         self.clients: List[WebSocket] = []
-        # History stores complete exchanges for replay:
-        # {role:"user", content:"..."} or {role:"gemini", content:"..."}
         self.history: List[dict] = []
 
         self.state: str = "idle"
         self.input_queue: asyncio.Queue = asyncio.Queue()
         self.worker_task: Optional[asyncio.Task] = None
-        self._has_session: bool = False      # True after first message succeeds
+        self._has_session: bool = False
         self._current_proc: Optional[subprocess.Popen] = None
         self._current_master_fd: Optional[int] = None
 
     def to_dict(self):
         return {
             "id": self.id,
+            "name": self.name,
             "workdir": self.workdir,
+            "model": self.model,
             "created_at": self.created_at,
             "message_count": sum(1 for m in self.history if m["role"] == "user"),
             "state": self.state,
             "alive": True,
         }
+
+    def save(self):
+        data = {
+            "id": self.id,
+            "name": self.name,
+            "workdir": self.workdir,
+            "model": self.model,
+            "created_at": self.created_at,
+            "history": self.history,
+        }
+        path = os.path.join(SESSIONS_DIR, f"{self.id}.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -164,9 +155,7 @@ class Session:
                 self.clients.remove(ws)
 
     async def replay_to(self, ws: WebSocket):
-        """Send full conversation history to a newly joined client."""
         for item in self.history:
-            # Replay as start/chunk/done sequence for gemini messages
             if item["role"] == "gemini":
                 for msg in [
                     {"role": "gemini_start"},
@@ -180,10 +169,10 @@ class Session:
     # ── Per-message Gemini runner ─────────────────────────────────────────────
 
     async def _run_gemini(self, prompt: str) -> str:
-        """Run `gemini -p <prompt> [--resume latest]`, stream output to clients,
-        return the complete response text."""
         gemini_path = shutil.which("gemini") or "gemini"
         cmd = [gemini_path, "-p", prompt]
+        if self.model:
+            cmd += ["--model", self.model]
         if self._has_session:
             cmd += ["--resume", "latest"]
 
@@ -196,7 +185,7 @@ class Session:
             cmd,
             stdin=subprocess.DEVNULL,
             stdout=slave_fd,
-            stderr=subprocess.DEVNULL,  # discard init/retry noise
+            stderr=subprocess.DEVNULL,
             cwd=self.workdir,
             close_fds=True,
         )
@@ -206,26 +195,24 @@ class Session:
         response_buf = ""
 
         def _read():
-            """Blocking read with 100ms select timeout."""
             try:
                 r, _, _ = select.select([master_fd], [], [], 0.1)
                 if r:
                     return os.read(master_fd, 4096)
                 return b""
             except OSError:
-                return None  # fd closed / process dead
+                return None
 
         while True:
             raw = await loop.run_in_executor(None, _read)
             if raw is None:
-                break  # PTY closed
+                break
             if raw:
                 text = clean_output(raw)
                 if text.strip():
                     await self.broadcast({"role": "gemini_chunk", "content": text})
                     response_buf += text
             elif proc.poll() is not None:
-                # No data and process has exited — drain once more then stop
                 raw2 = await loop.run_in_executor(None, _read)
                 if raw2:
                     text = clean_output(raw2)
@@ -254,7 +241,6 @@ class Session:
             try:
                 prompt = await self.input_queue.get()
 
-                # Record user message and broadcast
                 msg = {"role": "user", "content": prompt}
                 self.history.append(msg)
                 await self.broadcast(msg)
@@ -267,6 +253,7 @@ class Session:
                 self._has_session = True
                 self.history.append({"role": "gemini", "content": response})
                 self.state = "idle"
+                self.save()
                 await self.broadcast({"role": "gemini_done"})
 
                 self.input_queue.task_done()
@@ -286,6 +273,28 @@ class Session:
 sessions: Dict[str, Session] = {}
 
 
+# ── Startup: load persisted sessions ─────────────────────────────────────────
+@app.on_event("startup")
+async def load_saved_sessions():
+    for fpath in glob.glob(os.path.join(SESSIONS_DIR, "*.json")):
+        try:
+            with open(fpath, encoding="utf-8") as f:
+                data = json.load(f)
+            sid = data["id"]
+            if sid in sessions:
+                continue
+            s = Session(sid, data["workdir"])
+            s.name       = data.get("name", "")
+            s.model      = data.get("model", "")
+            s.history    = data.get("history", [])
+            s._has_session = len(s.history) > 0
+            s.created_at = data.get("created_at", s.created_at)
+            sessions[sid] = s
+            await s.start()
+        except Exception:
+            pass
+
+
 # ── REST API ─────────────────────────────────────────────────────────────────
 
 @app.get("/api/sessions")
@@ -300,9 +309,24 @@ async def create_session(body: dict):
     if not os.path.isdir(workdir):
         return JSONResponse({"error": "Invalid workdir"}, status_code=400)
     s = Session(sid, workdir)
+    s.name  = body.get("name", "")
+    s.model = body.get("model", "")
     sessions[sid] = s
     await s.start()
+    s.save()
     return {"id": sid}
+
+
+@app.patch("/api/sessions/{sid}")
+async def update_session(sid: str, req: Request):
+    if sid not in sessions:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    body = await req.json()
+    s = sessions[sid]
+    if "name" in body:
+        s.name = body["name"]
+    s.save()
+    return s.to_dict()
 
 
 @app.delete("/api/sessions/{sid}")
@@ -310,11 +334,35 @@ async def delete_session(sid: str):
     if sid not in sessions:
         return JSONResponse({"error": "Not found"}, status_code=404)
     await sessions[sid].stop()
+    fpath = os.path.join(SESSIONS_DIR, f"{sid}.json")
+    try:
+        os.remove(fpath)
+    except OSError:
+        pass
     del sessions[sid]
     return {"ok": True}
 
 
-FAVORITES_FILE = os.path.join(os.path.dirname(__file__), "..", "favorites.json")
+@app.get("/api/sessions/{sid}/export")
+def export_session(sid: str):
+    if sid not in sessions:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    s = sessions[sid]
+    title = s.name or f"Session {s.id}"
+    lines = [f"# {title}\n\n"]
+    lines.append(f"**작업 디렉토리:** {s.workdir}  \n")
+    lines.append(f"**생성일:** {s.created_at}\n\n---\n")
+    for item in s.history:
+        if item["role"] == "user":
+            lines.append(f"\n**👤 사용자**\n\n{item['content']}\n\n---\n")
+        elif item["role"] == "gemini":
+            lines.append(f"\n**✦ Gemini**\n\n{item['content']}\n\n---\n")
+    filename = f"session-{s.id}.md"
+    return PlainTextResponse(
+        "".join(lines),
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        media_type="text/markdown; charset=utf-8",
+    )
 
 
 @app.get("/api/favorites")
@@ -364,7 +412,6 @@ async def session_ws(websocket: WebSocket, sid: str):
     await websocket.accept()
     session.clients.append(websocket)
 
-    # Replay history
     await session.replay_to(websocket)
 
     try:
