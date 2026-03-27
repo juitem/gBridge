@@ -3,7 +3,6 @@ import glob
 import os
 import pty
 import select
-import re
 import shutil
 import subprocess
 import json
@@ -22,58 +21,6 @@ _BASE = os.path.dirname(os.path.abspath(__file__))
 SESSIONS_DIR  = os.path.join(_BASE, "..", "sessions")
 FAVORITES_FILE = os.path.join(_BASE, "..", "favorites.json")
 os.makedirs(SESSIONS_DIR, exist_ok=True)
-
-# ── ANSI / TUI output cleaning ───────────────────────────────────────────────
-ANSI_RE = re.compile(
-    r'\x1B'
-    r'(?:'
-    r'\][^\x07\x1B]*(?:\x07|\x1B\\)?'
-    r'|[PX^_][^\x1B]*(?:\x1B\\)?'
-    r'|\[[0-?]*[ -/]*[@-~]'
-    r'|[@-Z\\-_]'
-    r')'
-)
-MEANINGFUL_RE = re.compile(r'[a-zA-Z가-힣\d]{2,}')
-MARKDOWN_RE = re.compile(r'^[\s]*(?:#{1,6}\s|[-*+]\s|>\s|`{3}|\d+\.\s|---+|===+)')
-GEMINI_UI_RE = re.compile(
-    r'^\s*(?:'
-    r'\?.*for|~/'
-    r'|workspace\s*[\(/]|Ctrl\+[A-Z]|Shift\+Tab'
-    r'|Type your message|no sandbox|Signed in with'
-    r'|Plan:\s*Gemini|Gemini CLI v|Installed with npm'
-    r'|update available|Waiting for auth|cancel\)'
-    r"|We.re making changes|What.s Changing"
-    r'|policy.violating|prioritize traffic|capacity.related'
-    r'|Read more:|geminicli-updates|affects you|high traffic|workflow\.'
-    r')',
-    re.IGNORECASE
-)
-INIT_NOISE_RE = re.compile(
-    r'(?:Loaded cached credentials|Attempt \d+ failed|Retrying with backoff|GaxiosError)',
-    re.IGNORECASE
-)
-
-
-def clean_output(raw: bytes) -> str:
-    text = raw.decode("utf-8", errors="replace")
-    text = ANSI_RE.sub('', text)
-    text = re.sub(r'\x1b\[[0-9;]*', '', text)
-    text = re.sub(r'[│┤╢╖╕╣║╗╝╜╛┐└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌╡]', '', text)
-    lines_cr = []
-    for line in text.split('\n'):
-        lines_cr.append(line.split('\r')[-1])
-    filtered = []
-    for line in lines_cr:
-        stripped = line.strip()
-        if not stripped:
-            filtered.append('')
-        elif INIT_NOISE_RE.search(stripped):
-            pass
-        elif (MEANINGFUL_RE.search(stripped) or MARKDOWN_RE.match(stripped)) \
-                and not GEMINI_UI_RE.match(stripped) \
-                and 'no sandbox' not in stripped.lower():
-            filtered.append(line)
-    return re.sub(r'\n{3,}', '\n\n', '\n'.join(filtered))
 
 
 # ── Session ──────────────────────────────────────────────────────────────────
@@ -170,7 +117,7 @@ class Session:
 
     async def _run_gemini(self, prompt: str) -> str:
         gemini_path = shutil.which("gemini") or "gemini"
-        cmd = [gemini_path, "-p", prompt]
+        cmd = [gemini_path, "-p", prompt, "--output-format", "stream-json"]
         if self.model:
             cmd += ["--model", self.model]
         if self._has_session:
@@ -178,7 +125,6 @@ class Session:
 
         master_fd, slave_fd = pty.openpty()
         self._current_master_fd = master_fd
-
         loop = asyncio.get_event_loop()
 
         proc = subprocess.Popen(
@@ -193,6 +139,7 @@ class Session:
         os.close(slave_fd)
 
         response_buf = ""
+        line_buf = ""
 
         def _read():
             try:
@@ -208,17 +155,41 @@ class Session:
             if raw is None:
                 break
             if raw:
-                text = clean_output(raw)
-                if text.strip():
-                    await self.broadcast({"role": "gemini_chunk", "content": text})
-                    response_buf += text
+                line_buf += raw.decode("utf-8", errors="replace")
+                # stream chunks to client as they arrive
+                while "\n" in line_buf:
+                    line, line_buf = line_buf.split("\n", 1)
+                    line = line.strip()
+                    if not line.startswith("{"):
+                        continue
+                    try:
+                        event = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if event.get("type") == "message" and \
+                       event.get("role") == "assistant" and \
+                       event.get("delta") and event.get("content"):
+                        content = event["content"]
+                        await self.broadcast({"role": "gemini_chunk", "content": content})
+                        response_buf += content
             elif proc.poll() is not None:
                 raw2 = await loop.run_in_executor(None, _read)
                 if raw2:
-                    text = clean_output(raw2)
-                    if text.strip():
-                        await self.broadcast({"role": "gemini_chunk", "content": text})
-                        response_buf += text
+                    line_buf += raw2.decode("utf-8", errors="replace")
+                for line in line_buf.split("\n"):
+                    line = line.strip()
+                    if not line.startswith("{"):
+                        continue
+                    try:
+                        event = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if event.get("type") == "message" and \
+                       event.get("role") == "assistant" and \
+                       event.get("delta") and event.get("content"):
+                        content = event["content"]
+                        await self.broadcast({"role": "gemini_chunk", "content": content})
+                        response_buf += content
                 break
 
         try:

@@ -159,20 +159,32 @@ python3 -m backend.main &
 
 ---
 
-## 9. PTY 기반 세션 전체 구조 요약
+## 9. 현재 구조 요약 (stream-json 방식)
 
 ```
-세션 생성 → pty.openpty() → subprocess.Popen(["gemini"])
-         ↓
-_reader_loop (백그라운드)
-  └─ os.read(master_fd) → clean_output() → broadcast(gemini_chunk)
-  └─ IDLE_TIMEOUT 초 무출력 → broadcast(gemini_done) → history 저장
-
-_worker_loop (백그라운드)
-  └─ input_queue.get() → self.last_prompt = prompt
-  └─ os.write(master_fd, prompt+"\n")
-
-WebSocket 클라이언트
-  └─ 접속 시 replay_to() 로 히스토리 재생
-  └─ 입력 수신 → input_queue.put(prompt)
+메시지 수신
+  └─ gemini -p "prompt" --output-format stream-json [--resume latest]
+  └─ PTY stdout → JSON 라인 파싱
+  └─ type:message + role:assistant + delta:true → broadcast(gemini_chunk)
+  └─ 프로세스 exit → broadcast(gemini_done)
 ```
+
+---
+
+## 10. persistent session 시도 및 한계
+
+**목표:** Gemini 프로세스를 세션 동안 한 번만 실행해서 파일 컨텍스트 재전송 방지
+
+**시도한 방법들:**
+- stdin PIPE (no EOF): Gemini가 EOF 없이는 처리 안 함 (TTY 환경 무관)
+- stdin PTY: interactive TUI 모드로 진입 → `--output-format stream-json` 무시됨
+- TIOCSCTTY + setsid: 부팅은 되나 터미널 쿼리(`\x1b[c` DA1 등)에 응답해야 하고
+  응답해도 결국 TUI 모드로 동작
+
+**핵심 발견:**
+- Gemini CLI는 stdin TTY 여부로 모드를 결정: TTY → interactive TUI, pipe → 배치(EOF 필요)
+- `--output-format stream-json`은 배치 모드에서만 작동
+- **stdin pipe 모드는 EOF를 받아야만 처리 시작** (실제 터미널 환경에서도 동일)
+- 진정한 persistent session은 Gemini REST API 직접 호출(OAuth 토큰)로만 가능
+
+**workaround:** `~/M4miniGemini` 같은 경량 작업 디렉토리 사용 → 파일 컨텍스트 최소화
