@@ -907,9 +907,26 @@
           style="width:100%;background:var(--surface2);border:1px solid var(--border);
                  border-radius:8px;color:var(--text);padding:9px 12px;font-size:14px;outline:none;appearance:none;">
           <option value="">기본 (Gemini CLI 설정)</option>
-          <option value="gemini-2.5-pro-preview-03-25">Gemini 2.5 Pro Preview</option>
-          <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
-          <option value="gemini-2.0-flash-thinking-exp-01-21">Gemini 2.0 Flash Thinking</option>
+          <optgroup label="Gemini 3">
+            <option value="gemini-3-pro-preview">Gemini 3 Pro Preview</option>
+            <option value="gemini-3-flash-preview">Gemini 3 Flash Preview</option>
+          </optgroup>
+          <optgroup label="Gemini 2.5">
+            <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+            <option value="gemini-2.5-pro-preview-03-25">Gemini 2.5 Pro Preview</option>
+            <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+            <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash Lite</option>
+          </optgroup>
+          <optgroup label="Gemini 2.0">
+            <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+            <option value="gemini-2.0-flash-thinking-exp-01-21">Gemini 2.0 Flash Thinking</option>
+          </optgroup>
+          <optgroup label="단축 별칭">
+            <option value="auto">auto</option>
+            <option value="pro">pro</option>
+            <option value="flash">flash</option>
+            <option value="flash-lite">flash-lite</option>
+          </optgroup>
         </select>
       </div>
     </div>
@@ -969,7 +986,7 @@ const state = {
   newSessionModel: '',
 
   // browse modal
-  browsePath: '/',
+  browsePath: '/Users/juitem/M4miniGemini',
 
   // chat
   activeSessionId: null,
@@ -1167,7 +1184,7 @@ fab.addEventListener('click', openNewSessionModal);
 // NEW SESSION MODAL
 // ══════════════════════════════════════════════════════════════════
 function openNewSessionModal() {
-  state.newSessionPath = '/';
+  state.newSessionPath = '/Users/juitem/M4miniGemini';
   state.newSessionMode = 'new';
   state.newSessionName = '';
   state.newSessionModel = '';
@@ -1175,6 +1192,7 @@ function openNewSessionModal() {
   newSessionNameEl.value = '';
   newSessionModelEl.value = '';
   updatePills();
+  loadFavorites();
   newSessionModal.classList.add('open');
 }
 
@@ -1288,7 +1306,7 @@ newSessionStart.addEventListener('click', async () => {
 // DIRECTORY BROWSER MODAL
 // ══════════════════════════════════════════════════════════════════
 browseBtn.addEventListener('click', () => {
-  state.browsePath = state.newSessionPath || '/';
+  state.browsePath = state.newSessionPath || '/Users/juitem/M4miniGemini';
   openBrowseModal();
 });
 
